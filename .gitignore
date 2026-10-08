@@ -1,0 +1,43 @@
+# Build outputs
+/autoobservatory
+/planetarium
+/calibrate
+/tools/ephcheck
+/tools/ephdump
+/tools/viewcheck
+/tools/hgcheck
+/tools/objectname_check
+/tools/catcheck
+*.o
+*.ppu
+*.or
+
+# Pascal / Lazarus GUI
+/pas/PasPlanetariumGUI
+/pas/PlanetariumGUI
+/pas/PlanetariumGUI.compiled
+/pas/backup/
+/pas/selected_target.txt
+
+# CMake (MagToTrueNorth is a separate sample project)
+/MagToTrueNorth/build/
+
+# Runtime hand-off and telemetry files, rewritten continuously
+selected_target.txt
+mount_status.txt
+
+# Vendored toolchain: 36M platform binary, re-downloadable arduino-cli
+/bin/
+
+# Generated knowledge-graph artifacts
+/graphify-out/
+
+# Tool scratch
+/mobscura/
+/.kilo/
+/.freebuff/
+.m2.txt
+
+# Obsidian local workspace state
+ObsMCP/.obsidian/
+ObsMCP/.trash/
