@@ -45,6 +45,7 @@ function GreenwichMeanSiderealTime(JD: Double): Double;
 function LocalSiderealTime(JD, LonDeg: Double): Double;
 procedure HorizontalCoords(Y, Mo, D, H, Mi, S, LatDeg, LonDeg, RAHours, DecDeg: Double;
   out AzDeg, AltDeg: Double);
+procedure PrecessRaDecJ2000ToDate(JD: Double; var RAHours, DecDeg: Double);
 procedure JDToCalendar(JD: Double; out Y, Mo, D, H, Mi, S: Double);
 procedure SunRAandDec(JD: Double; out RAHours, DecDeg: Double);
 procedure ComputeMoonGeocentric(JD: Double; out RAHours, DecDeg, Magnitude: Double);
@@ -352,12 +353,37 @@ begin
   X1 := X * Cos(As_) - Y * Sin(As_);
   Y1 := X * Sin(As_) + Y * Cos(As_);
   Z1 := Z;
-  X2 := X1 * Cos(Cs) + Z1 * Sin(Cs);
+  // R2(-theta): the IAU 2006 matrix mixes x/z with MINUS sin(theta). The +sin
+  // form is the transpose and a 2*theta (~1071" at 2026) rotation error.
+  // Matches the C++ fix in planetary_objects.h; pinned by make check-horiz.
+  X2 := X1 * Cos(Cs) - Z1 * Sin(Cs);
   Y2 := Y1;
-  Z2 := -X1 * Sin(Cs) + Z1 * Cos(Cs);
+  Z2 := X1 * Sin(Cs) + Z1 * Cos(Cs);
   X := X2 * Cos(Bs) - Y2 * Sin(Bs);
   Y := X2 * Sin(Bs) + Y2 * Cos(Bs);
   Z := Z2;
+end;
+
+// Precess a J2000 RA (hours) / Dec (deg) pair to mean-of-date.
+// NEEDED FOR CATALOG OBJECTS ONLY (celestial_objects.csv is J2000). Objects
+// from LoadPlanets are already mean-of-date and must NOT be passed through here.
+// Counterpart of PrecessRaDecJ2000ToDate in planetary_objects.h.
+procedure PrecessRaDecJ2000ToDate(JD: Double; var RAHours, DecDeg: Double);
+var
+  Ra, Dec, X, Y, Z: Double;
+begin
+  Ra := DegToRad(RAHours * 15.0);
+  Dec := DegToRad(DecDeg);
+  X := Cos(Dec) * Cos(Ra);
+  Y := Cos(Dec) * Sin(Ra);
+  Z := Sin(Dec);
+  PrecessJ2000ToDate(JD, X, Y, Z);
+  if Z > 1.0 then Z := 1.0;
+  if Z < -1.0 then Z := -1.0;
+  DecDeg := RadToDeg(ArcSin(Z));
+  Ra := RadToDeg(ArcTan2(Y, X));
+  if Ra < 0.0 then Ra := Ra + 360.0;
+  RAHours := Ra / 15.0;
 end;
 
 procedure ComputeMoonGeocentric(JD: Double; out RAHours, DecDeg, Magnitude: Double);

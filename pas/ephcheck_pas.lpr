@@ -18,7 +18,8 @@ type
   end;
 
 const
-  // Epoch 1: 2026-09-23 00:00 UT (from tools/ephcheck.cpp; planets = Horizons)
+  // Epoch 1: 2026-09-23 00:00 UT. Planets + minor bodies = JPL Horizons
+  // geocentric apparent, fetched 2026-10. Matches tools/ephcheck.cpp.
   Checks1: array[0..11] of TCheck = (
     (Name:'Mercury';  RAHours:13.17889; DecDeg:-8.31594; Mag:-0.25; TolDeg:0.03; TolMag:1.8),
     (Name:'Venus';    RAHours:14.13846; DecDeg:-19.56797;Mag:-4.80; TolDeg:0.03; TolMag:1.0),
@@ -27,13 +28,14 @@ const
     (Name:'Saturn';   RAHours: 0.81817; DecDeg: 2.33028; Mag: 0.38; TolDeg:0.03; TolMag:0.4),
     (Name:'Uranus';   RAHours: 4.25043; DecDeg:21.09204; Mag: 5.67; TolDeg:0.03; TolMag:0.2),
     (Name:'Neptune';  RAHours: 0.22624; DecDeg:-0.07649; Mag: 7.68; TolDeg:0.03; TolMag:0.3),
-    (Name:'Ceres';    RAHours: 6.99710; DecDeg:23.143;  Mag: 8.75; TolDeg:0.5;  TolMag:0.2),
-    (Name:'Pluto';    RAHours:20.42846; DecDeg:-23.799; Mag:14.55; TolDeg:0.5;  TolMag:0.2),
-    (Name:'Haumea';   RAHours:14.67784; DecDeg:13.634;  Mag:17.27; TolDeg:0.5;  TolMag:0.2),
-    (Name:'Makemake'; RAHours:13.44748; DecDeg:19.762;  Mag:17.11; TolDeg:0.5;  TolMag:0.2),
-    (Name:'Eris';     RAHours: 1.83913; DecDeg: 0.113;  Mag:18.59; TolDeg:0.5;  TolMag:0.2));
+    (Name:'Ceres';    RAHours: 7.00599; DecDeg:23.068;  Mag: 8.75; TolDeg:0.15; TolMag:0.2),
+    (Name:'Pluto';    RAHours:20.43811; DecDeg:-23.620; Mag:14.55; TolDeg:0.15; TolMag:0.2),
+    (Name:'Haumea';   RAHours:14.67783; DecDeg:13.635;  Mag:17.27; TolDeg:0.15; TolMag:0.2),
+    (Name:'Makemake'; RAHours:13.44748; DecDeg:19.762;  Mag:17.11; TolDeg:0.15; TolMag:0.2),
+    (Name:'Eris';     RAHours: 1.83913; DecDeg: 0.113;  Mag:18.59; TolDeg:0.15; TolMag:0.2));
 
-  // Epoch 2: 2027-03-23 00:00 UT (from tools/ephcheck.cpp; planets = Horizons)
+  // Epoch 2: 2027-03-23 00:00 UT. JPL Horizons geocentric apparent,
+  // fetched 2026-10. Matches tools/ephcheck.cpp.
   Checks2: array[0..11] of TCheck = (
     (Name:'Mercury';  RAHours:22.51103; DecDeg:-11.15986;Mag: 0.14; TolDeg:0.03; TolMag:1.8),
     (Name:'Venus';    RAHours:21.89372; DecDeg:-13.35065;Mag:-3.97; TolDeg:0.03; TolMag:1.0),
@@ -42,11 +44,11 @@ const
     (Name:'Saturn';   RAHours: 1.02141; DecDeg: 4.11077; Mag: 0.74; TolDeg:0.03; TolMag:0.4),
     (Name:'Uranus';   RAHours: 4.02735; DecDeg:20.53354; Mag: 5.76; TolDeg:0.03; TolMag:0.2),
     (Name:'Neptune';  RAHours: 0.28100; DecDeg: 0.35657; Mag: 7.82; TolDeg:0.03; TolMag:0.3),
-    (Name:'Ceres';    RAHours: 6.96752; DecDeg:31.644;  Mag: 8.16; TolDeg:0.6;  TolMag:0.2),
-    (Name:'Pluto';    RAHours:20.67601; DecDeg:-23.058; Mag:14.64; TolDeg:0.6;  TolMag:0.2),
-    (Name:'Haumea';   RAHours:14.80731; DecDeg:14.162;  Mag:17.20; TolDeg:0.6;  TolMag:0.2),
-    (Name:'Makemake'; RAHours:13.52582; DecDeg:20.521;  Mag:17.04; TolDeg:0.6;  TolMag:0.2),
-    (Name:'Eris';     RAHours: 1.81084; DecDeg:-0.006;  Mag:18.62; TolDeg:0.6;  TolMag:0.2));
+    (Name:'Ceres';    RAHours: 6.98014; DecDeg:31.564;  Mag: 8.16; TolDeg:0.15; TolMag:0.2),
+    (Name:'Pluto';    RAHours:20.68503; DecDeg:-22.860; Mag:14.64; TolDeg:0.15; TolMag:0.2),
+    (Name:'Haumea';   RAHours:14.81068; DecDeg:13.898;  Mag:17.20; TolDeg:0.15; TolMag:0.2),
+    (Name:'Makemake'; RAHours:13.52949; DecDeg:20.214;  Mag:17.04; TolDeg:0.15; TolMag:0.2),
+    (Name:'Eris';     RAHours: 1.80765; DecDeg: 0.247;  Mag:18.62; TolDeg:0.15; TolMag:0.2));
 
 var
   Failures: Integer;

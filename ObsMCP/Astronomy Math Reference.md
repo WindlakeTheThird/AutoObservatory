@@ -55,6 +55,31 @@ Elements measured from 1999-12-31 0h UT (JD 2451543.5) — NOT J2000 noon. Pertu
 
 | Effect | Size |
 |---|---|
+| Mean-elements model floor | superseded — VSOP87 now, see [[Ephemeris Accuracy Verification]] |
+| VSOP87 planets, measured vs Horizons (48 epochs) | 0.15–0.40′ avg, ≤2.1′ max |
+| Missing nutation | ~17″ |
+| Missing aberration 2nd order | <1″ |
+| UT1−UTC not applied to GMST | **0.2″** (measured; deliberately not worth a ΔT table — `astro_math.h`) |
+| Moon (Schlyter + main terms) | ~0.8′ |
+| Catalog stars, horizontal | 0.002–0.008° residual vs astropy apparent |
+| Keplerian minor bodies | now element-limited (Pluto 0.3′, Ceres 0.6°, Eris 2.6′) |
+
+## Related
+
+- [[Autoobservatory Project]]
+- [[Ephemeris Accuracy Verification]]
+h.
+
+**Follow mode** adds no new math: it simply drives the centre (az₀, alt₀) each frame from the locked target's current horizontal coordinates, so the same projection tracks the object as the sky turns.
+
+## Schlyter lunar model
+
+Elements measured from 1999-12-31 0h UT (JD 2451543.5) — NOT J2000 noon. Perturbation terms (evection −1.274°, variation +0.658°, yearly equation −0.186°, +9 more longitude, 5 latitude, 2 distance) must derive D = Lm − Ls and F = Lm − N from the SAME element set; mixing in Meeus mean-element constants inverts improvements.
+
+## Residual budget
+
+| Effect | Size |
+|---|---|
 | Mean-elements model floor | ~9–17′ (planets) |
 | Missing nutation | ~17″ |
 | Missing aberration 2nd order | <1″ |

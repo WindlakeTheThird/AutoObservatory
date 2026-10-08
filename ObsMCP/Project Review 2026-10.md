@@ -1,60 +1,83 @@
 ---
-tags:
-  - review
-  - planning
+tags: [review, planning]
 ---
+
 # Project Review 2026-10
 
-Code review of the [[Autoobservatory Project]] (commit state as of 2026-10-08), cross-checked against the vault and against the source. Ranked by impact. `make check` passes clean at time of review — all 9 targets, both languages.
+Code review of the [[Autoobservatory Project]] on 2026-10-08, cross-checked against the vault and the source. Ranked by impact.
 
-The architecture is sound: the seams ([[sky_view.h]], `object_name.h`, `cli_parse.h`, the CSV→engine function) are real single points of truth, and the regression net is unusually good for a project this size. The findings below are gaps in the guardrails, not in the design.
+**Status after this session:** #1 done (git initialised, 55 files committed, pushed), #2 done (and it turned out to be hiding a much larger bug), #3 done (CI added). #4 and #5 remain open. #2 and #6(c) were investigated and closed as non-issues, with the measurements recorded below.
 
-## 1. Critical — the whole project is uncommitted
+The architecture is sound: the seams (`sky_view.h`, `object_name.h`, `cli_parse.h`, the CSV→engine function) are real single points of truth, and the regression net is unusually good for a project this size. The findings below are gaps in the guardrails, not in the design.
+
+## 1. Critical — the whole project was uncommitted — RESOLVED
 
 ```
 git log  → fatal: your current branch 'master' does not have any commits yet
 git ls-files | wc -l → 0
 ```
 
-Zero commits, zero tracked files, no `.gitignore`, no remote. Every bug recorded in [[Autoobservatory Project#Hard-won lessons]] — the 26° Moon epoch, Neptune's 3.9°, Saturn's 26′, the `+1e-12` ULP tolerance, the radian-vs-degree H-G bug — is one `rm -rf` from gone.
+Zero commits, zero tracked files, no `.gitignore`, no remote. Every bug recorded in [[Autoobservatory Project#Hard-won lessons]] — the 26° Moon epoch, Neptune's 3.9°, Saturn's 26′, the `+1e-12` ULP tolerance, the radian-vs-degree H-G bug — was one `rm -rf` from gone.
 
-Fix: `.gitignore` first (build outputs, `bin/`, `graphify-out/`, scratch dirs), then commit. Do this before anything else on this page.
+Fixed: `.gitignore` added (build output, `bin/`, `graphify-out/`, scratch dirs), initial commit `8b54c00`, pushed to `origin/main`. Verified self-sufficient by `make clean && make`.
 
-## 2. Biggest technical gap — leap seconds are unmodelled, and they dominate the error budget
+## 2. The horizontal path was untested — and that was hiding two real bugs
 
-`astro_math.h:49` (`GreenwichMeanSiderealTime`) computes GMST from a JD that `JulianDate()` (`astro_math.h:24`) builds directly from UTC calendar fields. That formula assumes **UT1**. UTC has trailed UT1 by **37 s since 2017** (38 s expected in 2027).
+Every other check in `make check` works in **equatorial** coordinates. `GreenwichMeanSiderealTime` → `CalculateHorizontalCoordinates` — the only code that actually aims the mount — had **no test and no documented accuracy claim anywhere in the vault**. Adding that test found the two defects below.
 
-37 s × 0.00417807 °/s = **0.155° = 9.3 arcmin** of permanent hour-angle error.
+### 2a. UT1−UTC: measured, and deliberately NOT applied
 
-| Term | Size |
-|---|---|
-| **Unmodelled leap seconds** | **9.3′** |
-| Moon (Schlyter) | 0.8′ |
-| Planets (VSOP87) | 0.15–0.45′ |
-| Mount deadband (`DEADBAND_DEG`) | 0.15° = 9.0′ |
+> **Correction.** An earlier draft of this note claimed unmodelled leap seconds caused a **9.3 arcmin** pointing error. That was wrong by ~20×. The correction that matters for GMST is **UT1 − UTC**, not TAI − UTC: `TAI − UT1` is no longer the fixed 32.184 s it was defined as, because Earth has slowed and it has grown past 37 s, absorbing nearly all 37 leap seconds.
 
-The one unexamined term is **10× the Moon's error and ~20× the planets'**, and it lands exactly on the deadband — the mount stops correcting precisely where the error appears. It is also a constant hour-angle offset, so it does not average out over a long exposure.
+Measured against astropy 8.0.1 at 2026-09-23 21:00 UTC: the genuine UT1−UTC effect moves GMST by **−0.20 arcsec**, and the project's GMST polynomial already sits within **+0.06 arcsec** of the IAU reference. An IERS ΔT table was implemented, measured, and **reverted** — it made the result worse (−1.24″) while adding a table that goes stale. `Ut1MinusUtcSeconds()` survives in `astro_math.h` as a documented zero-returning stub so the question is not re-litigated. Negligible against the budget (planets 9–27″, Moon 48″).
 
-It went unnoticed because `make check` is **entirely in equatorial coordinates**. The `GreenwichMeanSiderealTime` → `CalculateHorizontalCoordinates` path — the only function that actually aims the mount — has **no test and no documented accuracy claim anywhere in the vault**.
+### 2b. The real bugs: two precession defects
 
-Fix: apply ΔT = TAI − UT1 to the JD before the GMST call (a small leap-second table, ~15 lines). Then add an ephcheck case in **horizontal** coordinates at a known site so this path has a floor.
+**(i) Catalog stars were never precessed.** `celestial_objects.csv` rows are J2000 but were fed straight into `CalculateHorizontalCoordinates`. The dome and the mount were **9–21 arcmin** off — larger than the firmware `DEADBAND_DEG` (0.15° = 9′). Fixed by adding `PrecessRaDecJ2000ToDate` (`planetary_objects.h`, mirrored `astrop.pas`) and calling it at every *catalog* site: `planetarium.cpp` (star loop, tracking-panel fallback) and `main.cpp` (table loop, `findObject`, and the Moon-occultation check, which compared an of-date Moon against a J2000 star). The Moon, Sun and planets are already mean-of-date and must **not** be precessed — that is the ~20′ Moon double-precession trap in reverse.
 
-## 3. The catalog is not reproducible
+**(ii) `PrecessJ2000ToDate` had the wrong sign on θ.** The IAU 2006 matrix uses R2(**−θ**); the code implemented R2(+θ), i.e. the transpose, giving a **2θ ≈ 1071″** rotation error. Verified element-by-element against `erfa.pmat06` — after the sign fix all nine matrix elements agree.
 
-`celestial_objects.csv` was, per [[Autoobservatory Project]], "generated from HYG v4.1 and OpenNGC … with a throwaway script." `tools/` holds `vsop87_gen.py` and `ephaudit.py` but **not** the catalog generator. So the 894 rows, the 434 Bayer designations, the genitive naming convention and the 10-column schema are one-time, script-less, and hand-editable from now on. Hand-fix one Bayer typo and the provenance is unrecoverable.
+Bug (ii) had been silently corrupting the **Keplerian** path (Pluto, Ceres, asteroids, TNOs) — the only consumers of that function, since the 8 planets run on already-of-date VSOP87 series. Against real JPL Horizons:
 
-Fix: recover or rewrite the generator and commit it beside the CSVs. A file that cannot be regenerated is one edit away from corruption.
+| Body | Before | After |
+|---|---|---|
+| Pluto | 12.01′ | **0.30′** |
+| Ceres | 8.65′ | **0.59′** |
+| Eris | 15.25′ | **2.58′** |
+| Haumea | 15.84′ | **5.63′** |
+| Makemake | 18.10′ | **4.99′** |
+| **Mean** | **14.36′** | **3.02′** |
 
-## 4. The dual-language invariant is weaker than documented
+The documented "Pluto ~11′" and "asteroids/TNOs 0.2–0.3°" residuals were largely this bug, not "linear propagation of osculating elements" — see [[Ephemeris Accuracy Verification]].
+
+The old ephcheck values for these bodies were *model extrapolations*, so they agreed with the buggy model and could not arbitrate. Replaced with real Horizons geocentric apparent values; tolerances tightened from 0.5–0.6° to 0.15°.
+
+### The guard that now exists
+
+`tools/horzcheck.cpp` + `pas/horzcheck_pas.lpr` (`make check-horiz`) feed J2000 catalog coordinates through precess + horizontal and compare against astropy apparent place. Tolerance 0.05° (nutation ≤17″ + aberration ≤20.5″ are unmodelled by design). It also runs a **negative control** — the same objects with precession skipped must FAIL — so the tolerance can never be widened into meaninglessness. Current pass: **0.002–0.008°**, and the two language ports agree to 4 decimals.
+
+## 3. No CI — RESOLVED
+
+`.github/workflows/ci.yml` runs on every push and PR: one job installs g++/fpc/Lazarus/GTK2, starts **Xvfb**, and runs the full `make check`; a second compiles the firmware with `-Wall -Wextra -Werror`.
+
+The Xvfb step exists because `tools/namecheck_gui.sh` **skips itself and exits 0 when `DISPLAY` is unset** — a headless run would otherwise report green having tested nothing. The workflow now asserts the display is actually up and fails loudly if it is not.
+
+Still open: `make check` requires Lazarus and a display, which makes the local fast loop heavy. Worth splitting into `check-core` (no Lazarus) and `check-all`.
+
+## 4. The catalog is not reproducible — ACCEPTED as out of scope
+
+`celestial_objects.csv` was "generated from HYG v4.1 and OpenNGC … with a throwaway script" that is not in the repo. Decision (2026-10-08): the catalog is *transformed from external data* and the generator is gone; it is now committed and pushed, so it is safe. Accepting that hand-edits lose provenance. A future change to the object list should regenerate from HYG/OpenNGC afresh rather than patch the CSV in place.
+
+## 5. The dual-language invariant is weaker than documented — OPEN
 
 [[Autoobservatory Project]] claims the H-G frozen-value test means "the ports cannot diverge without failing one of them." True for `HGPhase()`. **Not** true for the ephemeris itself:
 
-- **`vsop87_trunc.h` (13,378 terms) vs `pas/vsop87_trunc.inc` (13,378 terms)** — same generator, no cross-check. Nothing in `make check` *can* detect a divergence: ephcheck tolerance is 0.03° = 108″, while a single dropped VSOP87 term is ~0.2″. Roughly 500 terms would have to disappear before a test noticed.
-- **The 24-row reference tables** in `tools/ephcheck.cpp:29-60` and `pas/ephcheck_pas.lpr:25-48` are hand-transcribed field by field. They agree today (verified by diff). But the whole value of the dual-port check is "both engines read the *same* truth," and nothing enforces that. A one-digit typo in a Dec value makes Pascal and C++ check against different skies while both print `ok`.
+- **`vsop87_trunc.h` (13,378 terms) vs `pas/vsop87_trunc.inc` (13,378 terms)** — same generator, no cross-check. Nothing in `make check` *can* detect a divergence: ephcheck tolerance is 0.03° = 108″, a single dropped VSOP87 term is ~0.2″. Roughly 500 terms would have to disappear before a test noticed.
+- **The 24-row reference tables** in `tools/ephcheck.cpp` and `pas/ephcheck_pas.lpr` are hand-transcribed field by field. They were verified identical during this review, but nothing enforces that. A one-digit typo in a Dec value makes Pascal and C++ check against different skies while both print `ok`. *(Partially addressed: the minor-body rows are now real Horizons values with 4× tighter tolerances, so a typo now fails loudly instead of passing. The planets and Moon rows are still hand-duplicated.)*
 
 Fix: a `check-vsop` target asserting both files declare the same `VSOP_NT` and that the flattened term arrays match exactly, plus one exact-match series evaluation at a fixed epoch (tol ~1e-9, not 0.03°). Generate the Pascal table from the C++ one, same spirit as `vsop87_gen.py`.
 
-## 5. CSV parsing aborts the process — the exit-code convention is a lie for data files
+## 6. CSV parsing aborts the process — OPEN
 
 `cli_parse.h:23` wraps `std::stod` in try/catch, so *arguments* degrade cleanly. The *data* side does not:
 
@@ -67,19 +90,18 @@ Inconsistent *within one file*: `planetarium.cpp:404` loads the catalog and exit
 
 Fix: throw with `file:line` context and wrap each `main` to map that to exit 1. ~15 lines, reusing the machinery already in `cli_parse.h`.
 
-## 6. Smaller, but real
+## 7. Smaller, but real
 
-- **`CalculateHorizontalCoordinates` takes 11 positional doubles** (`astro_math.h:71-74`), 6 of them adjacent same-typed date components. `planetarium.cpp:125` passes `..., second, 0.0` for milliseconds. A transposed minute/millisecond compiles clean and costs 600× the error. A `DateTime` struct — or just pass `jd`, the only thing the fields are used for — collapses it to 4 args. This is the one structural refactor worth doing: it also removes a class of impossible-date bugs that `cli_parse.h` currently has to defend against at the parse boundary.
-- **No CI.** Nine test targets, all manual, no `.github/`. Worse, `tools/namecheck_gui.sh` skips silently when `DISPLAY` is unset, so a headless CI run would report green having tested nothing. Needs `xvfb-run`, or it should fail loudly.
-- **`make check` requires Lazarus and a display** (via `check-select-gui` → `gui`), making the fast loop heavy. Split into `check-core` (no Lazarus) and `check-all`.
+- **`CalculateHorizontalCoordinates` takes 11 positional doubles** (`astro_math.h:71-74`), 6 of them adjacent same-typed date components. `planetarium.cpp` passes `..., second, 0.0` for milliseconds. A transposed minute/millisecond compiles clean and costs 600× the error. A `DateTime` struct — or just pass `jd`, the only thing the fields are used for — collapses it to 4 args. This is the one structural refactor worth doing: it also removes a class of impossible-date bugs that `cli_parse.h` currently defends against at the parse boundary.
 - **Doc drift — three live contradictions:**
-  1. [[Astronomy Math Reference#Residual budget]] still lists "Mean-elements model floor ~9–17′ (planets)" as current, superseded by [[Ephemeris Accuracy Verification#2026-10 VSOP87 upgrade (arcsecond-class planets)]] (0.15–0.45′).
-  2. [[Astronomy Math Reference#Annual aberration]] documents aberration as "finite-differencing over ±0.5 days … first-order covers ~99.5%", which [[Ephemeris Accuracy Verification]] says was wrong and was replaced with a 0.01 d central difference ("the old model's 0.5 d difference applied only half the aberration — fixed").
+  1. [[Astronomy Math Reference#Residual budget]] still lists "Mean-elements model floor ~9–17′ (planets)" as current, superseded by the VSOP87 upgrade (0.15–0.45′).
+  2. [[Astronomy Math Reference#Annual aberration]] documents aberration as "finite-differencing over ±0.5 days … first-order covers ~99.5%", which [[Ephemeris Accuracy Verification]] says was wrong and was replaced with a 0.01 d central difference.
   3. [[Autoobservatory Project]] describes the 8 planets as VSOP87 in one section and as Horizons osculating elements at 2026-06-09 in another, in the same note.
+- **A brittle test was found and fixed while doing #2.** `tools/clicheck.sh` asserted that follow mode centred Vega at hardcoded `289.2, 39.0`. Any ephemeris or epoch-handling change broke it, and a stale constant is indistinguishable from a real regression. Replaced with `expect_view_follows`, which asserts the view centre equals the target's own az/alt *from the same output* — self-consistent and time-independent. (Parsing must target the legend line: the header's `tracking:` line prints the same numbers at 2-decimal precision, so a naive first-match compares 289.2 against 289.15 and always fails.)
 
 ## Priority
 
-Act on #1 (five minutes, protects everything) and #2 (a real 9 arcmin pointing error, currently invisible to the entire test suite). #3 and #4 are the ones that make the existing test net trustworthy rather than merely present.
+#4 and #5 are what make the existing test net trustworthy rather than merely present — both are about *silent divergence* rather than wrong answers. #6 is a robustness gap that contradicts a documented contract. #7's `DateTime` refactor is optional.
 
 ## Related
 
@@ -87,4 +109,5 @@ Act on #1 (five minutes, protects everything) and #2 (a real 9 arcmin pointing e
 - [[Astronomy Math Reference]]
 - [[Ephemeris Accuracy Verification]]
 - [[Mount Follower Firmware]]
+- [[Pascal Planetarium GUI]]
 - [[Project Index]]

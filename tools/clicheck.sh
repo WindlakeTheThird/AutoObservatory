@@ -49,6 +49,24 @@ expect_view_center() { # label, az, alt, command...   (exit 0 AND view centred t
     || { echo "clicheck FAILED: $label view not centred on $want_az,$want_alt" >&2; exit 1; }
 }
 
+expect_view_follows() { # label, target-name, command...
+  # The view centre must equal the target's own az/alt in the same output,
+  # proving follow mode really steers from the catalog rather than a constant.
+  # Parsed from the LEGEND line specifically: the header's "tracking:" line
+  # carries the same numbers at 2-decimal precision, so grabbing the first
+  # match would compare 289.2 against 289.15 and always fail.
+  label=$1; target=$2; shift 2
+  out=$("$@" 2>&1) || { echo "clicheck FAILED: $label exited $?" >&2; exit 1; }
+  vaz=$(printf '%s\n' "$out" | sed -n 's/^view: center az \([0-9.-]*\) alt \([0-9.-]*\).*/\1/p')
+  valt=$(printf '%s\n' "$out" | sed -n 's/^view: center az \([0-9.-]*\) alt \([0-9.-]*\).*/\2/p')
+  line=$(printf '%s\n' "$out" | grep -F "$target" | grep 'mag ' | head -1)
+  [ -n "$line" ] || { echo "clicheck FAILED: $label: no legend line for $target" >&2; exit 1; }
+  taz=$(printf '%s\n' "$line" | awk '{for(i=1;i<=NF;i++) if($i=="az") print $(i+1)}')
+  talt=$(printf '%s\n' "$line" | awk '{for(i=1;i<=NF;i++) if($i=="alt") print $(i+1)}')
+  [ "$vaz" = "$taz" ] && [ "$valt" = "$talt" ] \
+    || { echo "clicheck FAILED: $label view $vaz,$valt != $target at $taz,$talt" >&2; exit 1; }
+}
+
 # --- usage errors: exit 2 ---
 expect_usage "planetarium bad latitude"        ./planetarium abc 10
 expect_usage "planetarium bad --mag"           ./planetarium 45 10 --mag xyz
@@ -130,11 +148,14 @@ expect_pass  "planetarium center two tokens"   ./planetarium 45 10 --date 2026-1
 expect_pass  "planetarium center + select"     ./planetarium 45 10 --date 2026-10-15 --time 21:00 --fov 60 --center 180,45 --select vega
 
 # follow mode: with a target the view recentres on it each frame (--follow
-# takes no value). Vega, 45N 10E, 2026-10-15 21:00 UTC is az 289.2 alt 39.0 -
-# the same centre --center 289.2,39.0 gives, but reached from the catalog.
+# takes no value). Asserted self-consistently: the view centre must equal the
+# target's own reported az/alt in the same output. Deliberately NOT hardcoded
+# to literal coordinates -- those go stale the moment the ephemeris or the
+# catalog's epoch handling changes (it did, when J2000 catalog precession was
+# fixed), and a stale constant is indistinguishable from a real regression.
 expect_pass  "planetarium --follow no target"  ./planetarium 45 10 --date 2026-10-15 --time 21:00 --follow
 expect_fail  "planetarium --follow bad select" ./planetarium 45 10 --date 2026-10-15 --time 21:00 --follow --select zzz
-expect_view_center "planetarium --follow centres Vega" 289.2 39.0 \
+expect_view_follows "planetarium --follow centres Vega" Vega \
   ./planetarium 45 10 --date 2026-10-15 --time 21:00 --fov 24 --follow --select vega
 
 echo "CLI argument checks passed (0 success / 1 runtime / 2 usage; -h exits 0)."

@@ -12,6 +12,7 @@
 
 #define VSOP87_TRUNC_IMPL // single-TU header-only model: tables live here
 #include "vsop87_trunc.h"
+#include "astro_math.h"
 
 struct PlanetaryObject
 {
@@ -67,14 +68,42 @@ inline void PrecessJ2000ToDate(double jd, double& x, double& y, double& z)
     double x1 = x * cosA - y * sinA;
     double y1 = x * sinA + y * cosA;
     double z1 = z;
-    // R2(theta):
-    double x2 = x1 * cosC + z1 * sinC;
+    // R2(theta). NOTE the sign: the IAU 2006 matrix uses R2(-theta), i.e. this
+    // step mixes x/z with MINUS sin(theta). The +sin form gives the transpose
+    // and a 2*theta (~1071" at 2026) rotation error. Verified element-by-element
+    // against erfa.pmat06; see tools/horzcheck.cpp.
+    double x2 = x1 * cosC - z1 * sinC;
     double y2 = y1;
-    double z2 = -x1 * sinC + z1 * cosC;
+    double z2 = x1 * sinC + z1 * cosC;
     // R3(-z):
     x = x2 * cosB - y2 * sinB;
     y = x2 * sinB + y2 * cosB;
     z = z2;
+}
+
+// Precess a J2000 RA (hours) / Dec (deg) pair to mean-of-date.
+//
+// NEEDED FOR CATALOG OBJECTS ONLY. Rows in celestial_objects.csv are J2000 and
+// must be precessed before the horizontal transform: skipping this leaves the
+// dome and the mount 9-21 arcmin off, which is larger than the firmware
+// DEADBAND_DEG (0.15 deg). Objects returned by GetPlanetaryObjects are already
+// mean-of-date (VSOP87 is of-date, Schlyter is of-date) and MUST NOT be passed
+// through here -- double-precessing them is the ~20' Moon bug in reverse.
+//
+// Verified against astropy by tools/ephcheck.cpp (horizontal reference cases)
+// and pas/ephcheck_pas.lpr.
+inline void PrecessRaDecJ2000ToDate(double jd, double& raHours, double& decDeg)
+{
+    double ra = raHours * 15.0 * M_PI / 180.0;
+    double dec = decDeg * M_PI / 180.0;
+    double x = std::cos(dec) * std::cos(ra);
+    double y = std::cos(dec) * std::sin(ra);
+    double z = std::sin(dec);
+    PrecessJ2000ToDate(jd, x, y, z);
+    decDeg = std::asin(Clamp(z, -1.0, 1.0)) * 180.0 / M_PI;
+    double raDeg = std::atan2(y, x) * 180.0 / M_PI;
+    if (raDeg < 0.0) raDeg += 360.0;
+    raHours = raDeg / 15.0;
 }
 
 inline std::tuple<double, double, double> HeliocentricCoordinates(double a, double e, double N, double i, double w, double M)

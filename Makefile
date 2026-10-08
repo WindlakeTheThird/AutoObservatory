@@ -38,13 +38,28 @@ gui-clean:
 
 # make check = both ephemeris implementations plus name resolution (unit +
 # C++ and Pascal GUI end-to-end). One command, one exit status.
-check: check-cpp check-view check-name check-cli check-select check-select-gui check-hg check-cat check-gui
+check: check-cpp check-view check-horiz check-name check-cli check-select check-select-gui check-hg check-cat check-gui
 
 check-cpp: planetarium
 	@echo '== C++ ephemeris check =='
 	@$(CC) $(CFLAGS) -o tools/ephcheck tools/ephcheck.cpp -I. $(LIBS)
 	@tools/ephcheck
 	@rm -f tools/ephcheck
+
+# Horizontal-coordinate path (J2000 catalog -> precess -> az/alt), against
+# astropy 8.0.1 apparent place. This is the ONLY check that exercises
+# GreenwichMeanSiderealTime -> CalculateHorizontalCoordinates, i.e. the code that
+# actually aims the mount. Includes a negative control: skipping precession must
+# fail, so the tolerance can never be widened into meaninglessness.
+# Runs in BOTH languages so the ports cannot diverge silently.
+check-horiz:
+	@echo '== horizontal-coordinate check (C++ and Pascal) =='
+	@$(CC) $(CFLAGS) -o tools/horzcheck tools/horzcheck.cpp -I. $(LIBS)
+	@tools/horzcheck
+	@rm -f tools/horzcheck
+	@cd pas && $(FPC) -Fu. -ohorzcheck_pas horzcheck_pas.lpr >/dev/null
+	@./pas/horzcheck_pas
+	@rm -f pas/horzcheck_pas pas/horzcheck_pas.o
 
 # argument handling: bad numbers / impossible observer positions must exit 1
 # with a message (not abort with 134), and -h must exit 0.
@@ -116,6 +131,6 @@ check-gui:
 	@rm -f pas/ephcheck_pas pas/ephcheck_pas.o
 
 clean:
-	rm -f autoobservatory planetarium calibrate tools/ephcheck tools/objectname_check tools/viewcheck
+	rm -f autoobservatory planetarium calibrate tools/ephcheck tools/objectname_check tools/viewcheck tools/horzcheck tools/ephdump
 	rm -f selected_target.txt mount_status.txt
-	rm -f pas/*.ppu pas/*.o pas/*.or pas/PlanetariumGUI pas/PasPlanetariumGUI pas/viewcheck_pas
+	rm -f pas/*.ppu pas/*.o pas/*.or pas/PlanetariumGUI pas/PasPlanetariumGUI pas/viewcheck_pas pas/horzcheck_pas

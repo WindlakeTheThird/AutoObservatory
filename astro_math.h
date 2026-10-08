@@ -46,6 +46,23 @@ inline double JulianDate(double year, double month, double day, double hour, dou
            d + dayFrac + b - 1524.5;
 }
 
+// UT1 - UTC is deliberately NOT applied here. Measured against astropy for
+// 2026-09-23: the genuine UT1-UTC offset moves GMST by only -0.20 arcsec,
+// because Earth has slowed enough that TAI - UT1 has grown past 37 s and
+// absorbs nearly all of the leap seconds (the naive "37 leap seconds" figure
+// overstates the error by ~20x). This polynomial sits within +0.06 arcsec of
+// the IAU reference, so adding an IERS delta-T table only makes it worse (-1.2
+// arcsec) while adding a table that goes stale. Below the engine's accuracy
+// budget (planets 9-27", Moon 48") - revisit only if arcsecond horizontal
+// accuracy is ever needed.
+inline double Ut1MinusUtcSeconds(double year)
+{
+    // Kept as a documented stub so the question is not re-litigated: the
+    // answer is "negligible, see above".
+    (void)year;
+    return 0.0;
+}
+
 inline double GreenwichMeanSiderealTime(double jd)
 {
     double jd0 = std::floor(jd + 0.5) - 0.5;

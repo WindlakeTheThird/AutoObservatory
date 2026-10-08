@@ -37,11 +37,15 @@ static const Check checks1[] = {
     {"Saturn",    0.81817,    2.33028,  0.38,   0.03, 0.4},
     {"Uranus",    4.25043,   21.09204,  5.67,   0.03, 0.2},
     {"Neptune",   0.22624,   -0.07649,  7.68,   0.03, 0.3},
-    {"Ceres",     6.99710,   23.143,    8.75,   0.5, 0.2},
-    {"Pluto",    20.42846,  -23.799,   14.55,   0.5, 0.2},
-    {"Haumea",   14.67784,   13.634,   17.27,   0.5, 0.2},
-    {"Makemake", 13.44748,   19.762,   17.11,   0.5, 0.2},
-    {"Eris",      1.83913,    0.113,   18.59,   0.5, 0.2},
+    // Keplerian minor bodies: JPL Horizons geocentric apparent, fetched 2026-10.
+    // tolDeg was 0.5-0.6 while these were model extrapolations; now that they are
+    // real Horizons values and the theta sign error in PrecessJ2000ToDate is
+    // fixed, 0.15 deg (9 arcmin) passes with margin (measured 0.3-6.4 arcmin).
+    {"Ceres",     7.00599,   23.068,    8.75,   0.15, 0.2},
+    {"Pluto",    20.43811,  -23.620,   14.55,   0.15, 0.2},
+    {"Haumea",   14.67783,   13.635,   17.27,   0.15, 0.2},
+    {"Makemake", 13.44748,   19.762,   17.11,   0.15, 0.2},
+    {"Eris",      1.83913,    0.113,   18.59,   0.15, 0.2},
 };
 
 // Epoch 2: 2027-03-23 00:00 UT
@@ -53,11 +57,11 @@ static const Check checks2[] = {
     {"Saturn",    1.02141,    4.11077,  0.74,   0.03, 0.4},
     {"Uranus",    4.02735,   20.53354,  5.76,   0.03, 0.2},
     {"Neptune",   0.28100,    0.35657,  7.82,   0.03, 0.3},
-    {"Ceres",     6.96752,   31.644,    8.16,   0.6, 0.2},
-    {"Pluto",    20.67601,  -23.058,   14.64,   0.6, 0.2},
-    {"Haumea",   14.80731,   14.162,   17.20,   0.6, 0.2},
-    {"Makemake", 13.52582,   20.521,   17.04,   0.6, 0.2},
-    {"Eris",      1.81084,   -0.006,   18.62,   0.6, 0.2},
+    {"Ceres",     6.98014,   31.564,    8.16,   0.15, 0.2},
+    {"Pluto",    20.68503,  -22.860,   14.64,   0.15, 0.2},
+    {"Haumea",   14.81068,   13.898,   17.20,   0.15, 0.2},
+    {"Makemake", 13.52949,   20.214,   17.04,   0.15, 0.2},
+    {"Eris",      1.80765,    0.247,   18.62,   0.15, 0.2},
 };
 
 static int CheckEpoch(const double jd, const char* label, const Check* checks, size_t n)

@@ -10,4 +10,4 @@ tags:
 - [[Pascal Planetarium GUI]] — Free Pascal / Lazarus Form version: click-to-select objects, live dome, target hand-off to the mount
 - [[Astronomy Math Reference]] — Keplerian propagation, light-time, IAU 2006 precession, aberration, Schlyter Moon
 - [[Ephemeris Accuracy Verification]] — two-epoch ephcheck self-check and reference sources
-- [[Project Review 2026-10]] — code review: unmodelled leap seconds, catalog reproducibility, unverified C++/Pascal table sync
+- [[Project Review 2026-10]] — code review: untested horizontal-coordinate path, catalog provenance, unverified C++/Pascal table sync

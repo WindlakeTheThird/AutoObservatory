@@ -1,0 +1,82 @@
+# Autoobservatory regression net.
+#
+# Everything in `make check` used to run only when someone remembered to run it.
+# `make check` is the project's whole safety net -- the ephemeris self-checks in
+# both languages, the frozen-value HGPhase test, the sky-view projection test,
+# the horizontal-coordinate test, catalog sanity, and the CLI exit-code
+# conventions. Run on every push and PR.
+#
+# The GUI tests need a display, so xvfb-run provides a virtual one. Note that
+# tools/namecheck_gui.sh SKIPS ITSELF when DISPLAY is unset and still exits 0 --
+# so without xvfb this job would report green having tested nothing. The
+# explicit DISPLAY here is what makes that check real.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: make check (C++ + Pascal)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ make python3 \
+            fpc \
+            lazarus \
+            libgtk2.0-dev \
+            libcanberra-gtk-module \
+            xvfb
+
+      - name: Report toolchain versions
+        run: |
+          g++ --version | head -1
+          make --version | head -1
+          fpc -iV
+          lazbuild --version 2>/dev/null || true
+
+      - name: Start virtual display
+        run: |
+          Xvfb :99 -screen 0 1280x1024x24 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
+      # Verify DISPLAY actually took: if it did not, namecheck_gui.sh will
+      # silently skip and the suite goes green without testing the GUI.
+      - name: Confirm display is available
+        run: |
+          echo "DISPLAY=$DISPLAY"
+          if [ -z "$DISPLAY" ]; then echo "::error::no DISPLAY - GUI checks would silently skip"; exit 1; fi
+          xdpyinfo -display "$DISPLAY" >/dev/null && echo "virtual display OK"
+
+      - name: make check
+        run: make check
+
+  firmware:
+    name: Arduino firmware (strict compile)
+    runs-on: ubuntu-latest
+
+    # Compiles the sketch with -Wall -Wextra -Werror. Not part of `make check`
+    # because it needs the Arduino toolchain; kept as its own job so a toolchain
+    # hiccup cannot mask the host-side regression net.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino@v2
+
+      - name: Compile mount_tracker strictly
+        run: |
+          arduino-cli core update-index --additional-urls \
+            https://raw.githubusercontent.com/arduino/arduino-cli/master/package_arduino_index.json
+          arduino-cli compile --fqbn arduino:renesas_uno:minima \
+            --build-property "compiler.cpp.extra_flags=-Wall -Wextra -Werror -Wno-switch" \
+            arduino/mount_tracker

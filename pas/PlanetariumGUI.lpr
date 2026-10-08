@@ -210,7 +210,8 @@ var
   Stars: specialize TArray<TCelestialObject>;
   Planets: specialize TArray<TPlanetaryObject>;
   I: Integer;
-  Az, Alt: Double;
+Az, Alt: Double;
+  StarRA, StarDec: Double;
   Sym: Char;
   Counter, ClusterNum: Integer;
 begin
@@ -235,7 +236,10 @@ begin
   ClusterNum := 1;
   for I := 0 to High(Stars) do
   begin
-    HorizontalCoords(Y, Mo, D, H, Mi, S, ObsLat, ObsLon, Stars[I].RAHours, Stars[I].DecDeg, Az, Alt);
+    // Catalog rows are J2000: precess before the horizontal transform.
+    StarRA := Stars[I].RAHours; StarDec := Stars[I].DecDeg;
+    PrecessRaDecJ2000ToDate(JD, StarRA, StarDec);
+    HorizontalCoords(Y, Mo, D, H, Mi, S, ObsLat, ObsLon, StarRA, StarDec, Az, Alt);
     // Shorthand on the dome: letters for the brightest stars, digits for the
     // brightest star clusters - same scheme as the C++ planetarium.
     if (Stars[I].Magnitude <= 1.5) and (Alt > 0) then

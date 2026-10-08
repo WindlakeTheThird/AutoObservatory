@@ -502,10 +502,14 @@ void DisplayResults(double observerLat, double observerLon, bool visibleOnly, st
         if (!targetName.empty() && !CaseInsensitiveEq(obj.name, targetName)) continue;
         found = true;
 
+        // Catalog rows are J2000: precess before the horizontal transform.
+        double objRa = obj.rightAscensionHours, objDec = obj.declinationDegrees;
+        PrecessRaDecJ2000ToDate(JulianDate(year, month, day, hour, minute, second, millisecond), objRa, objDec);
+
         auto [az, alt] = CalculateHorizontalCoordinates(
             year, month, day, hour, minute, second, millisecond,
             observerLat, observerLon,
-            obj.rightAscensionHours, obj.declinationDegrees);
+            objRa, objDec);
 
         if (visibleOnly && alt < 0.0) continue;
 
@@ -514,7 +518,7 @@ void DisplayResults(double observerLat, double observerLon, bool visibleOnly, st
         }
 
         std::string status = alt < 0 ? "BELOW HORIZON" : "VISIBLE";
-        if (status == "VISIBLE" && IsOccultedByMoon(moon.rightAscensionHours, moon.declinationDegrees, obj.rightAscensionHours, obj.declinationDegrees))
+        if (status == "VISIBLE" && IsOccultedByMoon(moon.rightAscensionHours, moon.declinationDegrees, objRa, objDec))
         {
             status = "OCCULTED";
         }
@@ -587,10 +591,13 @@ void DisplayArduinoResults(double observerLat, double observerLon, std::string t
         {
             if (CaseInsensitiveEq(obj.name, name))
             {
+                // Catalog rows are J2000: precess before the horizontal transform.
+                double objRa = obj.rightAscensionHours, objDec = obj.declinationDegrees;
+                PrecessRaDecJ2000ToDate(JulianDate(year, month, day, hour, minute, second, millisecond), objRa, objDec);
                 return CalculateHorizontalCoordinates(
                     year, month, day, hour, minute, second, millisecond,
                     observerLat, observerLon,
-                    obj.rightAscensionHours, obj.declinationDegrees);
+                    objRa, objDec);
             }
         }
         for (const auto& planet : planets)

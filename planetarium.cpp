@@ -122,8 +122,11 @@ static void PrintTrackingPanel(const std::string& targetName, double lat, double
         for (auto& s : stars)
             if (s.name == targetName)
             {
+                // Catalog rows are J2000: precess before the horizontal transform.
+                double sRa = s.rightAscensionHours, sDec = s.declinationDegrees;
+                PrecessRaDecJ2000ToDate(JulianDate(year, month, day, hour, minute, second, 0.0), sRa, sDec);
                 auto [az, alt] = CalculateHorizontalCoordinates(year, month, day, hour, minute, second, 0.0,
-                                                                lat, lon, s.rightAscensionHours, s.declinationDegrees);
+                                                                lat, lon, sRa, sDec);
                 tAz = az; tAlt = alt; haveTarget = true; break;
             }
         if (!haveTarget)
@@ -413,10 +416,14 @@ static void RenderFrame(double lat, double lon, double magLimit,
     };
     char nextSym = 'A';
     int nextCluster = 1;
+    double starJD = JulianDate(year, month, day, hour, minute, second, 0.0);
     for (auto& s : stars)
     {
+        // Catalog rows are J2000: precess before the horizontal transform.
+        double sRa = s.rightAscensionHours, sDec = s.declinationDegrees;
+        PrecessRaDecJ2000ToDate(starJD, sRa, sDec);
         auto [az, alt] = CalculateHorizontalCoordinates(year, month, day, hour, minute, second, 0.0,
-                                                        lat, lon, s.rightAscensionHours, s.declinationDegrees);
+                                                        lat, lon, sRa, sDec);
         char sym = '.';
         if (s.magnitude <= 1.5 && alt > 0)
         {

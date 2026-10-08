@@ -37,11 +37,28 @@ Epoch-2 references are model extrapolations with exact mean motions, not externa
 | Object class | Residual vs true ephemeris |
 |---|---|
 | Planets (VSOP87) | 0.15–0.45′ avg, ≤0.75′ max (Venus spikes to 2.1′ for ~1 day at inferior conjunction) |
-| Pluto (Keplerian, VSOP87 has no Pluto) | ~11′ |
-| Asteroids/TNOs (osculating Keplerian) | 0.2–0.3° |
+| Pluto (Keplerian) | **0.3′** (was ~11′ — see the 2026-10-08 precession fix below) |
+| Ceres (Keplerian) | **0.6′** (was ~9′) |
+| Eris / Makemake / Haumea (Keplerian) | **2.6′ / 5.0′ / 5.6′** (was ~15–18′) |
+| Asteroids/TNOs (osculating Keplerian) | now element-limited, not precession-limited; expect ~0.1–0.3° |
 | Moon | 0.8′ |
+| Catalog stars (J2000 → precessed → az/alt) | **0.002–0.008°** vs astropy apparent (nutation + aberration only) |
 
 Good enough for hobby-mount pointing; not for astrometry.
+
+## 2026-10-08 precession sign fix (was silently costing 12–18 arcmin)
+
+`PrecessJ2000ToDate` implemented **R2(+θ)** where the IAU 2006 matrix uses **R2(−θ)** — the transpose, a 2θ ≈ 1071″ rotation error. Verified element-by-element against `erfa.pmat06`; after the fix all nine elements agree.
+
+This went unnoticed for two reasons: the only consumers are the **Keplerian** bodies (the 8 planets use already-of-date VSOP87 series, which skip precession entirely), and ephcheck's references for those bodies were *model extrapolations* that agreed with the buggy model, so the suite could not arbitrate.
+
+Fixes applied:
+- Corrected the θ sign in `planetary_objects.h` and `astrop.pas`.
+- Added `PrecessRaDecJ2000ToDate` and applied it to **catalog** objects, which are J2000 and were never precessed at all — they were **9–21′ off** on the dome and in the mount's pointing.
+- Replaced the minor-body ephcheck references with real JPL Horizons geocentric apparent values, tightening tolerance from 0.5–0.6° to **0.15°**. Measured against Horizons, mean error over the 5 bodies fell from **14.36′ to 3.02′**.
+- Added `tools/horzcheck.cpp` + `pas/horzcheck_pas.lpr` (`make check-horiz`) — the first check to exercise the horizontal path at all, with a negative control that fails if precession is ever skipped again.
+
+Note the trap this sits next to: objects from `GetPlanetaryObjects` are **already mean-of-date** and must never be precessed. Doing so is the ~20′ Moon double-precession bug documented in [[Astronomy Math Reference]], in reverse.
 
 ## 2026-10 VSOP87 upgrade (arcsecond-class planets)
 
