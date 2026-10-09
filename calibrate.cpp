@@ -59,7 +59,7 @@ static bool ReadLine(int fd, std::string& out, int timeoutMs)
     return false;
 }
 
-int main(int argc, char* argv[])
+static int runMain(int argc, char* argv[])
 {
     bool dryRun = false;
     const char* helpMsg =
@@ -175,16 +175,48 @@ int main(int argc, char* argv[])
     double errAz = 999, errAlt = 999;
     for (int i = 0; i < 60; ++i)
     {
-        if (ReadLine(fd, line, 1000) &&
-            std::sscanf(line.c_str(), "ERR:%lf %lf", &errAz, &errAlt) == 2 &&
-            std::fabs(errAz) < 2.0 && std::fabs(errAlt) < 2.0)
+        // Re-send the target every second. The sketch's safety watchdog stops
+        // the motors after CMD_TIMEOUT_MS without a fresh command, so a host
+        // that commands once and then only listens would stall the mount
+        // mid-travel. Keeping the command alive is what the watchdog expects.
+        SerialWriteLine(fd, "AZ:0 ALT:30");
+        if (ReadLine(fd, line, 1000))
         {
-            std::printf("  OK: az err %.2f, alt err %.2f — mount is calibrated to TRUE north.\n", errAz, errAlt);
-            SerialClose(fd);
-            return 0;
+            // A STALE line means the sketch gave up driving; never treat that
+            // as a successful calibration, whatever the error fields say.
+            if (line.find("STALE") != std::string::npos)
+            {
+                std::fprintf(stderr, "Mount reports STALE (command link lost) - not calibrated.\n");
+                SerialClose(fd);
+                return 1;
+            }
+            if (std::sscanf(line.c_str(), "ERR:%lf %lf", &errAz, &errAlt) == 2 &&
+                std::fabs(errAz) < 2.0 && std::fabs(errAlt) < 2.0)
+            {
+                std::printf("  OK: az err %.2f, alt err %.2f — mount is calibrated to TRUE north.\n", errAz, errAlt);
+                SerialClose(fd);
+                return 0;
+            }
         }
     }
     std::fprintf(stderr, "Verification did not converge (last err az %.2f alt %.2f).\n", errAz, errAlt);
     SerialClose(fd);
     return 1;
+}
+
+// Any exception escaping the program (malformed CSV row, missing data file)
+// must surface as exit 1 with a message, per the documented exit-code
+// convention: 0 success, 1 runtime error, 2 usage error. Without this the
+// process terminated via std::terminate with SIGABRT (exit 134).
+int main(int argc, char* argv[])
+{
+    try
+    {
+        return runMain(argc, argv);
+    }
+    catch (const std::exception& e)
+    {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
 }

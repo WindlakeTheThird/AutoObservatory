@@ -570,16 +570,23 @@ inline std::vector<PlanetaryObject> GetPlanetaryObjects(double jd, const std::st
     }
 
     std::ifstream file(csvPath);
-    if (!file.is_open()) return planets; // missing CSV: planets only (Moon still computed)
+    // Was `return planets` on a missing file, which silently produced a sky
+    // containing only the Moon. The documented exit-code convention puts a
+    // missing data file at exit 1, so fail loudly instead.
+    if (!file.is_open())
+        throw std::runtime_error("cannot open " + csvPath);
 
     // CSV format (see header comment block in planetary_objects.csv):
     // line 1 = column names, later lines starting with '#' = comments (skipped).
     std::string line;
     bool first = true;
+    int lineno = 0;
     while (std::getline(file, line))
     {
+        ++lineno;
         if (first) { first = false; continue; }
         if (line.empty() || line[0] == '#') continue;
+        if (line.rfind("name,", 0) == 0) continue;   // column-name row
         std::stringstream ss(line);
         std::string f[15];
         int cols = 0;
@@ -588,7 +595,11 @@ inline std::vector<PlanetaryObject> GetPlanetaryObjects(double jd, const std::st
             if (!std::getline(ss, f[k], ',')) break;
             cols = k + 1;
         }
-        if (cols < 14) continue;
+        if (cols < 14)
+        {
+            throw std::runtime_error(csvPath + ":" + std::to_string(lineno) +
+                                     ": expected 14 columns, got " + std::to_string(cols));
+        }
         try
         {
             PCSVElements pe;
@@ -607,7 +618,14 @@ inline std::vector<PlanetaryObject> GetPlanetaryObjects(double jd, const std::st
             p.name = pe.name; p.rightAscensionHours = ra; p.declinationDegrees = dec; p.magnitude = mag;
             planets.push_back(p);
         }
-        catch (...) { continue; }
+        catch (const std::exception& e)
+        {
+            // Was `catch (...) { continue; }`, which silently dropped the row and
+            // produced a sky missing whole bodies with no diagnostic. Name the
+            // file and line so a bad row is findable, and let the caller decide.
+            throw std::runtime_error(csvPath + ":" + std::to_string(lineno) +
+                                     ": malformed orbital-element row (" + e.what() + ")");
+        }
     }
 
     // Moon is not in the CSV (special model); always append it.

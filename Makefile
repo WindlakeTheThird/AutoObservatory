@@ -38,7 +38,7 @@ gui-clean:
 
 # make check = both ephemeris implementations plus name resolution (unit +
 # C++ and Pascal GUI end-to-end). One command, one exit status.
-check: check-cpp check-view check-horiz check-name check-cli check-select check-select-gui check-hg check-cat check-gui
+check: check-cpp check-view check-horiz check-name check-cli check-csv check-select check-select-gui check-hg check-cat check-gui
 
 check-cpp: planetarium
 	@echo '== C++ ephemeris check =='
@@ -77,6 +77,14 @@ check-view:
 check-cli: planetarium autoobservatory calibrate
 	@echo '== CLI argument check =='
 	@sh tools/clicheck.sh
+
+# Malformed-input regression net for the two CSV readers: missing files,
+# '#' comments, truncated rows, non-numeric fields, CRLF endings. Asserts the
+# exit-code contract (1 with a file:line:row message, never SIGABRT/134 and
+# never a silently degraded sky). See tools/csvcheck.sh.
+check-csv: planetarium autoobservatory
+	@echo '== CSV malformed-input check =='
+	@sh tools/csvcheck.sh
 
 # object_name.h unit check on a synthetic catalog (no CSVs): exact, unique
 # prefix, unique substring, exact-beats-ambiguous-prefix, ambiguous, unknown.

@@ -30,6 +30,13 @@ const float  AZ_PROPORTIONAL    = 0.10;    // fraction of remaining error per se
 const float  CAL_DEADBAND_DEG   = 0.5;     // settle tolerance during calibration
 const int    EEPROM_MAGIC       = 0xCA1B;  // marks valid stored calibration
 
+// SAFETY: if no target command arrives for this long, stop driving and hold.
+// Covers a yanked USB cable, a crashed host, or a closed port. On expiry the
+// mount coasts to a stop and reports STALE, but KEEPS emitting ERR: telemetry
+// so the operator can still see where it stopped and why. Must be comfortably
+// longer than the host's send interval during a slew.
+const unsigned long CMD_TIMEOUT_MS = 5000;
+
 // L293D pins — two channels, one per axis. ENx always driven (speed via PWM
 // on the IN pin, dir via the paired IN pins).
 const int AZ_IN1_PIN  = 2;
@@ -45,6 +52,12 @@ Adafruit_LSM303DLH_Mag_Unified mag = Adafruit_LSM303DLH_Mag_Unified(12345);
 
 float targetAz = 0.0, targetAlt = 0.0;
 bool  haveTarget = false;
+unsigned long lastCommandMs = 0;   // when the last VALID target line arrived
+bool  stale = false;               // command link lost; motors held, telemetry kept
+
+// Rejected-command counter, reported in ERR: so a host-side protocol bug shows
+// up as a visible count instead of a silently ignored line.
+unsigned long rejectedCmds = 0;
 
 float azPos = 0.0, altPos = 0.0;          // estimated current axis angles (deg, TRUE frame)
 float azOffset = 0.0, altOffset = 0.0;    // sensor->magnetic-frame offsets (from calibration)
@@ -109,6 +122,33 @@ bool readOrientation(float &azOut, float &altOut)
 }
 
 // ---------------- line parsing ----------------
+// Validates a target before it is allowed to move a motor. sscanf's %f happily
+// accepts "nan", "inf" and out-of-range numbers, any of which would reach
+// driveAxis() and produce an undefined PWM duty. Reject those here.
+bool acceptTarget(float az, float alt)
+{
+    if (!isfinite(az) || !isfinite(alt))
+    {
+        Serial.println("REJECT: non-finite target");
+        return false;
+    }
+    if (alt < -90.0f || alt > 90.0f)
+    {
+        Serial.println("REJECT: altitude out of range [-90,90]");
+        return false;
+    }
+    if (az < -360.0f || az >= 720.0f)
+    {
+        Serial.println("REJECT: azimuth implausibly out of range");
+        return false;
+    }
+    az = fmodf(az, 360.0f);
+    if (az < 0.0f) az += 360.0f;
+    targetAz = az;
+    targetAlt = alt;
+    return true;
+}
+
 void parseLine()
 {
     float az, alt, decl;
@@ -119,9 +159,14 @@ void parseLine()
             Serial.println("UNCALIBRATED - run calibrate first");
             return;
         }
-        targetAz = az;
-        targetAlt = alt;
+        if (!acceptTarget(az, alt))
+        {
+            ++rejectedCmds;
+            return;                 // keep driving to the last good target
+        }
         haveTarget = true;
+        stale = false;
+        lastCommandMs = millis();
     }
     else if (strcmp(lineBuf, "CAL") == 0)
     {
@@ -141,6 +186,7 @@ void beginCalibration()
 {
     calibrated = false;
     haveTarget = false;
+    stale = false;
     azOffset = 0.0; altOffset = 0.0; magDeclination = 0.0;
 
     // Step 1: chase AZ:0/ALT:30 with offsets zeroed — this is the magnetic frame.
@@ -301,17 +347,43 @@ void loop()
     }
 
     // 3. Drive motors toward target / report errors
+    // SAFETY WATCHDOG: no target command for CMD_TIMEOUT_MS means the command
+    // link is gone (cable pulled, host crashed, port closed). Stop driving.
+    // Telemetry continues so the failure is visible rather than silent.
+    if (haveTarget && !stale && (millis() - lastCommandMs) > CMD_TIMEOUT_MS)
+    {
+        stale = true;
+        stopMotors();
+        Serial.println("STALE: no command for 5s - motors stopped");
+    }
+
     if (haveTarget)
     {
-        float errAz = driveAxis(azPos, targetAz, AZ_IN1_PIN, AZ_IN2_PIN, AZ_EN_PIN, azPwm);
-        float errAlt = driveAxis(altPos, targetAlt, ALT_IN1_PIN, ALT_IN2_PIN, ALT_EN_PIN, altPwm);
+        float errAz, errAlt;
+        if (stale)
+        {
+            stopMotors();            // hold position; do not drive
+            // Report the REAL error to the last commanded target, not zero.
+            // Reporting 0 here would make a stalled mount look like it reached
+            // the target -- exactly the false "calibrated" result that matters.
+            errAz = targetAz - azPos;
+            if (errAz > 180.0f) errAz -= 360.0f;
+            if (errAz < -180.0f) errAz += 360.0f;
+            errAlt = targetAlt - altPos;
+        }
+        else
+        {
+            errAz  = driveAxis(azPos,  targetAz,  AZ_IN1_PIN,  AZ_IN2_PIN,  AZ_EN_PIN,  azPwm);
+            errAlt = driveAxis(altPos, targetAlt, ALT_IN1_PIN, ALT_IN2_PIN, ALT_EN_PIN, altPwm);
+        }
 
         static unsigned long lastReport = 0;
         if (millis() - lastReport > 1000)
         {
-            char out[96];
-            snprintf(out, sizeof(out), "ERR:%.2f %.2f cur %.2f/%.2f tgt %.2f/%.2f",
-                     errAz, errAlt, azPos, altPos, targetAz, targetAlt);
+            char out[112];
+            snprintf(out, sizeof(out), "ERR:%.2f %.2f cur %.2f/%.2f tgt %.2f/%.2f%s rej=%lu",
+                     errAz, errAlt, azPos, altPos, targetAz, targetAlt,
+                     stale ? " STALE" : "", rejectedCmds);
             Serial.println(out);
             lastReport = millis();
         }

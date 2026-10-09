@@ -91,7 +91,7 @@ static void PrintUsage()
     std::cout << std::endl;
 }
 
-int main(int argc, char* argv[])
+static int runMain(int argc, char* argv[])
 {
     double observerLat = 45.0;
     double observerLon = 10.0;
@@ -673,5 +673,22 @@ void DisplayArduinoResults(double observerLat, double observerLon, std::string t
     else
     {
         std::cout << line.str() << std::endl;
+    }
+}
+
+// Any exception escaping the program (malformed CSV row, missing data file)
+// must surface as exit 1 with a message, per the documented exit-code
+// convention: 0 success, 1 runtime error, 2 usage error. Without this the
+// process terminated via std::terminate with SIGABRT (exit 134).
+int main(int argc, char* argv[])
+{
+    try
+    {
+        return runMain(argc, argv);
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "error: " << e.what() << "\n";
+        return 1;
     }
 }

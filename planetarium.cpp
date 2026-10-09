@@ -405,7 +405,7 @@ static void RenderFrame(double lat, double lon, double magLimit,
     std::vector<SkyObject> sky;
     std::vector<CelestialObject> stars;
     try { stars = CelestialObjectReader::ReadFromCSV("celestial_objects.csv"); }
-    catch (...) { std::cerr << "cannot read celestial_objects.csv\n"; std::exit(1); } // no CSV, no map
+    catch (const std::exception& e) { std::cerr << "cannot read celestial_objects.csv: " << e.what() << "\n"; std::exit(1); } // no CSV, no map
 
     // Shorthand on the dome: letters for the brightest stars (A, B, C...),
     // digits for the brightest star clusters (1, 2, 3...). The legend maps
@@ -610,7 +610,7 @@ static void RenderFrame(double lat, double lon, double magLimit,
     std::cout << "  ( ) = cursor, [ ] = target  (mag limit " << magLimit << ", fov " << g_view.fov << ")\n";
 }
 
-int main(int argc, char* argv[])
+static int runMain(int argc, char* argv[])
 {
     double lat = 45.0, lon = 10.0;
     double magLimit = 4.0;
@@ -921,4 +921,21 @@ int main(int argc, char* argv[])
 
     RenderFrame(lat, lon, magLimit, year, month, day, hour, minute, second);
     return 0;
+}
+
+// Any exception escaping the program (malformed CSV row, missing data file)
+// must surface as exit 1 with a message, per the documented exit-code
+// convention: 0 success, 1 runtime error, 2 usage error. Without this the
+// process terminated via std::terminate with SIGABRT (exit 134).
+int main(int argc, char* argv[])
+{
+    try
+    {
+        return runMain(argc, argv);
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "error: " << e.what() << "\n";
+        return 1;
+    }
 }
