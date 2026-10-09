@@ -49,6 +49,42 @@ inline std::vector<std::string> LoadCatalogNames()
     return names;
 }
 
+// Does `name` denote exactly Messier object `token` (already lowercased)?
+//
+// The catalog carries two spellings, both of which must resolve:
+//   "Lagoon Nebula (M8)"   tag at the end   - 9 existing rows
+//   "M11 (Wild Duck Cluster)"  number first - 50 existing rows
+//
+// "M8" must match neither "M80" nor "M81", hence the token-boundary test.
+inline bool IsMessierObject(const std::string& name, const std::string& tokenLower)
+{
+    std::string ln = ObjectNameLower(name);
+
+    // Form 1: "(M8)" as a complete tag. Plain find() -- rfind(...,0) would only
+    // look at position 0. The closing paren in the pattern is what keeps
+    // "(m80)" from matching "(m8)".
+    size_t i = ln.find("(" + tokenLower + ")");
+    if (i != std::string::npos)
+    {
+        size_t after = i + tokenLower.size() + 2;
+        if (after == ln.size() || ln[after] == ' ') return true;
+    }
+
+    // Form 2: the name begins with "M8" followed by a non-alphanumeric, so
+    // "M8" and "M8 (Crab Nebula)" match while "M80" and "M81" do not.
+    if (ln.rfind(tokenLower, 0) != 0) return false;
+    size_t after = tokenLower.size();
+    return after == ln.size() || !std::isalnum((unsigned char)ln[after]);
+}
+
+inline bool LooksLikeMessier(const std::string& q)
+{
+    if (q.size() < 2 || q[0] != 'm') return false;
+    for (size_t i = 1; i < q.size(); ++i)
+        if (!std::isdigit((unsigned char)q[i])) return false;
+    return true;
+}
+
 // Returns true with `canonical` set on a unique match (exact, unique prefix, or
 // unique substring). On failure returns false: `candidates` is filled with the
 // ambiguous matches, or empty when nothing matched at all.
@@ -60,6 +96,21 @@ inline bool ResolveObjectName(const std::vector<std::string>& names,
     std::string q = ObjectNameLower(query);
     for (auto& n : names)
         if (ObjectNameLower(n) == q) { canonical = n; return true; }
+
+    // Messier numbers need their own pass BEFORE prefix matching. "M8" is a
+    // prefix of "M80", "M81", ... so without this, `--select M8` matched the
+    // single prefix candidate and silently resolved to the WRONG OBJECT -- it
+    // aimed the mount at M80. That is the worst possible failure for a mount,
+    // so an exact Messier designation outranks any prefix or substring hit.
+    if (LooksLikeMessier(q))
+    {
+        candidates.clear();
+        for (auto& n : names)
+            if (IsMessierObject(n, q)) candidates.push_back(n);
+        if (candidates.size() == 1) { canonical = candidates.front(); return true; }
+        if (!candidates.empty()) return false; // ambiguous
+    }
+
     for (int pass = 0; pass < 2; ++pass) // 0 = prefix, 1 = substring
     {
         candidates.clear();

@@ -4,10 +4,10 @@
 //
 // Pins the matching contract against a small synthetic catalog instead of the
 // real CSVs, so the algorithm is tested in isolation and stays independent of
-// catalog edits: exact (case-insensitive) match, then a unique prefix, then a
-// unique substring, with an ambiguous query resolving to *nothing* and
-// reporting its candidates. The real catalog is covered end-to-end by
-// tools/namecheck.sh (`make check-select`).
+// catalog edits: exact (case-insensitive) match, then Messier designations,
+// then a unique prefix, then a unique substring, with an ambiguous query
+// resolving to *nothing* and reporting its candidates. The real catalog is
+// covered end-to-end by tools/namecheck.sh (`make check-select`).
 //
 // Build & run via:  make check-name
 #include <cstdio>
@@ -16,7 +16,10 @@
 #include "object_name.h"
 
 static const std::vector<std::string> kCatalog = {
-    "Vega", "Arcturus", "Mars", "Markab", "Makemake", "Moon", "Venus"
+    "Vega", "Arcturus", "Mars", "Markab", "Makemake", "Moon", "Venus",
+    // Messier rows in BOTH spellings the catalog uses.
+    "Lagoon Nebula (M8)", "M11 (Wild Duck Cluster)", "M80", "M81",
+    "Andromeda Galaxy (M31)", "M101",
 };
 
 struct Case {
@@ -36,8 +39,23 @@ static const Case kCases[] = {
     {"moon",     "Moon",       0},
     {"ctur",     "Arcturus",   0},  // unique substring
     {"ma",       nullptr,      3},  // ambiguous prefix: Markab, Mars, Makemake
-    {"u",        nullptr,      2},  // ambiguous substring: Arcturus, Venus
+    {"u",        nullptr,      4},  // ambiguous substring: Arcturus, Venus,
+                                   // Lagoon Nebula, M11 (Wild Duck Cluster)
     {"zzzzz",    nullptr,      0},  // nothing matches
+
+    // --- Messier designations -------------------------------------------------
+    // "M8" is a prefix of "M80" and "M81". Before the Messier pass existed,
+    // it resolved to M80 -- the WRONG OBJECT, which on a mount means aiming at
+    // the wrong patch of sky. These pin the fix.
+    {"M8",       "Lagoon Nebula (M8)", 0},   // tag-last spelling wins over M80/M81
+    {"m8",       "Lagoon Nebula (M8)", 0},   // case-insensitive
+    {"M80",      "M80",        0},           // the longer number still works
+    {"M81",      "M81",        0},
+    {"M11",      "M11 (Wild Duck Cluster)", 0},  // number-first spelling
+    {"M31",      "Andromeda Galaxy (M31)", 0},
+    {"M101",     "M101",       0},           // must not match "M10" / "M1"
+    {"M110",     nullptr,      0},           // not in this synthetic catalog
+    {"M8x",      nullptr,      0},           // not a Messier token at all
 };
 
 int main()

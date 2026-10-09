@@ -993,6 +993,48 @@ begin
   Result[High(Result)] := Obj;
 end;
 
+// Does AName denote exactly Messier object AToken (already lowercased)?
+// Mirrors IsMessierObject() in object_name.h. The catalog spells Messier objects
+// two ways -- "Lagoon Nebula (M8)" and "M11 (Wild Duck Cluster)" -- and "M8"
+// must match neither "M80" nor "M81", hence the token-boundary test.
+function IsMessierObject(const AName, AToken: string): Boolean;
+var
+  LN: string;
+  P: Integer;
+  After: Integer;
+begin
+  LN := LowerCase(AName);
+  Result := False;
+  // Form 1: "(m8)" as a complete tag.
+  P := Pos('(' + AToken + ')', LN);
+  if P > 0 then
+  begin
+    After := P + Length(AToken) + 2;   // 1-based index one past ')'
+    if (After > Length(LN)) or (LN[After] = ' ') then
+      Result := True;
+  end;
+  if Result then Exit;
+  // Form 2: name begins with "m8" followed by a non-alphanumeric.
+  if Copy(LN, 1, Length(AToken)) <> AToken then Exit;
+  After := Length(AToken) + 1;
+  if After > Length(LN) then
+    Result := True
+  else
+    Result := not (LN[After] in ['0'..'9', 'a'..'z']);
+end;
+
+function LooksLikeMessier(const Q: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if Length(Q) < 2 then Exit;
+  if Q[1] <> 'm' then Exit;
+  for I := 2 to Length(Q) do
+    if not (Q[I] in ['0'..'9']) then Exit;
+  Result := True;
+end;
+
 function ResolveName(const ANames: array of string; const AQuery: string;
   out ACanonical: string; out ACandidates: specialize TArray<string>): Integer;
 var
@@ -1009,6 +1051,37 @@ begin
       ACanonical := ANames[I];
       Exit(I);
     end;
+  // Messier numbers are resolved before prefix matching: "M8" is a prefix of
+  // "M80", "M81", ... and without this `--select M8` silently resolved to the
+  // WRONG OBJECT (M80) and aimed the mount at it. Mirrors object_name.h.
+  if LooksLikeMessier(Q) then
+  begin
+    Count := 0;
+    MatchIdx := -1;
+    for I := 0 to High(ANames) do
+      if IsMessierObject(ANames[I], Q) then
+      begin
+        Inc(Count);
+        MatchIdx := I;
+      end;
+    if Count = 1 then
+    begin
+      ACanonical := ANames[MatchIdx];
+      Exit(MatchIdx);
+    end;
+    if Count > 1 then
+    begin
+      SetLength(ACandidates, Count);
+      Count := 0;
+      for I := 0 to High(ANames) do
+        if IsMessierObject(ANames[I], Q) then
+        begin
+          ACandidates[Count] := ANames[I];
+          Inc(Count);
+        end;
+      Exit(-1);
+    end;
+  end;
   for Pass := 0 to 1 do // 0 = prefix, 1 = substring
   begin
     Count := 0;
