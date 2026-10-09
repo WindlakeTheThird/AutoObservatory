@@ -3,13 +3,14 @@
 # Everything in `make check` used to run only when someone remembered to run it.
 # `make check` is the project's whole safety net -- the ephemeris self-checks in
 # both languages, the frozen-value HGPhase test, the sky-view projection test,
-# the horizontal-coordinate test, catalog sanity, and the CLI exit-code
-# conventions. Run on every push and PR.
+# the horizontal-coordinate test, catalog sanity, the CSV malformed-input net,
+# the VSOP87 table cross-check, and the CLI exit-code conventions. Run on every
+# push and PR.
 #
-# The GUI tests need a display, so xvfb-run provides a virtual one. Note that
+# The GUI tests need a display, so Xvfb provides a virtual one. Note that
 # tools/namecheck_gui.sh SKIPS ITSELF when DISPLAY is unset and still exits 0 --
-# so without xvfb this job would report green having tested nothing. The
-# explicit DISPLAY here is what makes that check real.
+# so without a display this job would report green having tested nothing. The
+# display is started here and its presence is asserted before the suite runs.
 
 name: CI
 
@@ -35,27 +36,45 @@ jobs:
             fpc \
             lazarus \
             libgtk2.0-dev \
-            libcanberra-gtk-module \
-            xvfb
+            xvfb \
+            x11-utils
 
       - name: Report toolchain versions
         run: |
           g++ --version | head -1
           make --version | head -1
           fpc -iV
-          lazbuild --version 2>/dev/null || true
+          echo "LAZDIR candidates: $(ls -d /usr/lib/lazarus/* 2>/dev/null | tr '\n' ' ')"
+          test -d "$(ls -d /usr/lib/lazarus/[0-9]* 2>/dev/null | head -1)" \
+            && echo "lazarus LCL root found" \
+            || { echo "::error::no Lazarus LCL under /usr/lib/lazarus - `make gui` will fail"; exit 1; }
 
+      # Xvfb needs time to create the socket before anything can connect to it.
+      # Polling here matters: a fixed sleep raced and the display check below
+      # failed intermittently.
       - name: Start virtual display
         run: |
-          Xvfb :99 -screen 0 1280x1024x24 &
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp &
+          for i in $(seq 1 30); do
+            if xdpyinfo -display :99 >/dev/null 2>&1; then
+              echo "virtual display ready after ${i}s"
+              echo "DISPLAY=:99" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Xvfb did not come up on :99"
+          exit 1
 
-      # Verify DISPLAY actually took: if it did not, namecheck_gui.sh will
-      # silently skip and the suite goes green without testing the GUI.
-      - name: Confirm display is available
+      # Guard: if DISPLAY is somehow absent, namecheck_gui.sh silently skips and
+      # the suite goes green without having exercised the GUI.
+      - name: Confirm the GUI tests will actually run
         run: |
           echo "DISPLAY=$DISPLAY"
-          if [ -z "$DISPLAY" ]; then echo "::error::no DISPLAY - GUI checks would silently skip"; exit 1; fi
+          if [ -z "$DISPLAY" ]; then
+            echo "::error::no DISPLAY - GUI checks would silently skip"
+            exit 1
+          fi
           xdpyinfo -display "$DISPLAY" >/dev/null && echo "virtual display OK"
 
       - name: make check
@@ -68,15 +87,26 @@ jobs:
     # Compiles the sketch with -Wall -Wextra -Werror. Not part of `make check`
     # because it needs the Arduino toolchain; kept as its own job so a toolchain
     # hiccup cannot mask the host-side regression net.
+    #
+    # Uses arduino-cli from PATH (via the setup action) rather than the
+    # project-local ./bin/arduino-cli, which is gitignored.
     steps:
       - uses: actions/checkout@v4
 
       - uses: arduino/setup-arduino@v2
 
+      # arduino:renesas_uno (UNO R4) ships in Arduino's OWN package index -- no
+      # third-party index is needed. An earlier version of this workflow pointed
+      # --additional-urls at a URL that 404s.
+      - name: Install the UNO R4 core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:renesas_uno
+          arduino-cli board listall | grep -i "uno r4" || {
+            echo "::error::renesas_uno core did not register any board"; exit 1; }
+
       - name: Compile mount_tracker strictly
         run: |
-          arduino-cli core update-index --additional-urls \
-            https://raw.githubusercontent.com/arduino/arduino-cli/master/package_arduino_index.json
           arduino-cli compile --fqbn arduino:renesas_uno:minima \
             --build-property "compiler.cpp.extra_flags=-Wall -Wextra -Werror -Wno-switch" \
             arduino/mount_tracker

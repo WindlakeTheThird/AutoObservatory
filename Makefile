@@ -5,7 +5,11 @@ LIBS    = wmm_mag.c -lm
 
 # FPC/Lazarus paths for the GUI target (Debian/Ubuntu layout).
 FPC        = fpc
-LAZDIR     ?= /usr/lib/lazarus/3.0
+# LAZDIR is auto-detected rather than hardcoded: Debian/Ubuntu install to
+# /usr/lib/lazarus/3.0, other distros and manual installs use /usr/lib/lazarus/3.0.0
+# or a /usr/lib/lazarus/default symlink, and a wrong path fails at `make gui`
+# with a confusing "Can't find unit Interfaces". Override with LAZDIR=...
+LAZDIR     ?= $(firstword $(sort $(wildcard /usr/lib/lazarus/[0-9]*)) /usr/lib/lazarus/default)
 FPCFLAGS    = -Fupas -Fu$(LAZDIR)/lcl/units/x86_64-linux \
               -Fu$(LAZDIR)/lcl/units/x86_64-linux/gtk2 \
               -Fu$(LAZDIR)/components/lazutils/lib/x86_64-linux
