@@ -96,6 +96,48 @@ rotation for months.
 
 CI runs `make check` under Xvfb plus a strict firmware compile, on every push.
 
+## CI
+
+`.github/workflows/ci.yml` runs on every push and PR, as two independent jobs.
+
+**`check`** — installs the toolchain, starts **Xvfb**, and runs the full
+`make check`. The display is not optional: `tools/namecheck_gui.sh` skips itself
+and still exits 0 when `DISPLAY` is unset, so a run without one reports green
+having never exercised the GUI. The workflow therefore polls until the X server
+answers *and* fails the job if it doesn't — a fixed sleep raced.
+
+**`firmware`** — installs `arduino-cli` from a **pinned release tarball with a
+verified sha256**, then runs `make firmware`, which installs the pinned sketch
+libraries and compiles under `-Wall -Wextra -Werror`.
+
+### Reproducing CI locally
+
+```bash
+xvfb-run -a make check          # same as CI's check job
+ARDUINO_CLI=arduino-cli make firmware
+```
+
+`make check` and `make firmware` are the same targets CI runs, so a local
+failure and a CI failure have the same cause. Override the CLI with
+`ARDUINO_CLI=`; it is resolved with `command -v`, so both a `PATH` name and a
+path like `./bin/arduino-cli` work.
+
+### The parts that are easy to get wrong
+
+Everything below exists because it broke at least once:
+
+- **`arduino:renesas_uno` is in Arduino's own package index** — no third-party
+  Boards Manager URL. There is no `arduino/setup-arduino` action; it 404s.
+- **`LAZDIR` is auto-detected**, not hardcoded — distributions and manual
+  installs version that directory differently.
+- **Sketch libraries are pinned in `libraries.txt`**, not vendored; they live in
+  the Arduino sketchbook, which is not under version control.
+- **The only third-party action in the workflow is `actions/checkout`.** The
+  firmware job installs its own CLI so it depends on nothing that can vanish.
+- **One source of truth for the reference data.** The C++ ephcheck table
+  generates the Pascal one; `make check-vsop` proves the two VSOP87 tables
+  agree. Neither is checked by hand any more.
+
 ## Documentation
 
 The design notes, accuracy tables and post-mortems live in an
