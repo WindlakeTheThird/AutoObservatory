@@ -65,7 +65,28 @@ DC motors have no per-step feedback, so the LSM303AGR **is** the encoder: positi
 
 ## Tooling
 
-`arduino-cli` 1.5.1 in `./bin/` (project-local), core `arduino:renesas_uno`. Strict compile:
+`arduino-cli` 1.5.1 in `./bin/` (project-local, gitignored). Build the sketch **and its pinned libraries** from a clean machine with:
+
+```bash
+make firmware        # firmware-core + firmware-libs, then compile
+make firmware-libs   # just the sketchbook libraries
+make firmware-core   # ensure arduino:renesas_uno is installed and the FQBN registered
+```
+
+Override the CLI with `ARDUINO_CLI=arduino-cli` — CI does this, local builds use the vendored `./bin` one.
+
+**The sketch's libraries are pinned, not vendored.** `arduino-cli` resolves libraries from the *Arduino sketchbook* (`~/Arduino/libraries`), which is not version-controlled, so a clean machine or a CI runner fails with `fatal error: Adafruit_LSM303_Accel.h: No such file or directory`. Versions live in `arduino/mount_tracker/libraries.txt` and `make firmware` installs them:
+
+```
+Adafruit LSM303 Accel@1.1.9
+Adafruit LSM303DLH Mag@1.0.11
+```
+
+arduino-cli resolves the transitive dependencies itself, selecting Adafruit Unified Sensor 1.1.15 and Adafruit BusIO 1.17.4 — the versions also used locally. They are deliberately **not** listed in that file: listing them would let the pins silently disagree with what actually gets installed. Because CI runs the same `make firmware` target, a dependency added to the sketch without a `libraries.txt` entry now fails CI instead of only failing locally.
+
+`arduino:renesas_uno` ships in **Arduino's own package index** — no third-party Boards Manager URL is needed (verified by downloading `package_index.tar.bz2` and enumerating it).
+
+Strict compile:
 ```bash
 arduino-cli compile --fqbn arduino:renesas_uno:minima \
   --build-property "compiler.cpp.extra_flags=-Wall -Wextra -Werror -Wno-switch" \

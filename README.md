@@ -75,22 +75,24 @@ error accounting.
 
 ## Regression net
 
-This is the part that matters most. Ten check targets, the ephemeris ones
+This is the part that matters most. Twelve check targets, the ephemeris ones
 duplicated across C++ and Pascal so the ports cannot silently diverge:
 
 | Target | What it pins |
 |---|---|
-| `check-cpp` / `check-gui` | two-epoch ephemeris against real Horizons values |
-| `check-horiz` | the horizontal path (sidereal time → az/alt), with a **negative control** that fails if catalog precession is ever dropped |
+| `check-cpp` / `check-gui` | two-epoch ephemeris against real Horizons values. The Pascal table is **generated** from the C++ one (`tools/ephcheck_gen.py`), so the two cannot drift |
+| `check-horiz` | the horizontal path (sidereal time → az/alt) — the code that actually aims the mount — against astropy, with a **negative control** that fails if catalog precession is ever dropped |
 | `check-hg` | frozen-value table for the IAU H-G phase function, both languages |
 | `check-view` | the sky-view projection, including that the default view is bit-identical to the original polar formula |
-| `check-name` / `check-select` | name resolution: exact, prefix, substring, ambiguous, unknown |
+| `check-vsop` | the two generated 13,379-term VSOP87 tables agree exactly — amplitudes, t-powers, layouts. `check-cpp` cannot see this: its tolerance is 108″ and one term is worth ~0.2″ |
+| `check-name` / `check-select` / `check-select-gui` | name resolution: exact, prefix, substring, ambiguous, unknown — across both CLI tools and the GUI |
 | `check-cat` | catalog integrity — ranges, uniqueness, Bayer format, self-resolution |
 | `check-cli` | the exit-code convention (0 success / 1 runtime / 2 usage) |
+| `check-csv` | malformed input: missing files, injected `#` comments, truncated rows, non-numeric fields, CRLF. Asserts exit 1 with a `file:line:row` message, never an abort or a silently degraded sky |
 
-`check-horiz` deserves a note: it exists because the horizontal path — the only
-code that actually aims the mount — was previously untested, and that gap hid a
-wrong-sign error in the IAU precession rotation for months.
+`check-horiz` deserves a note: it exists because the horizontal path was
+previously untested, and that gap hid a wrong-sign error in the IAU precession
+rotation for months.
 
 CI runs `make check` under Xvfb plus a strict firmware compile, on every push.
 
@@ -110,6 +112,23 @@ The design notes, accuracy tables and post-mortems live in an
 Adafruit LSM303AGR (magnetometer + accelerometer) for tilt-compensated heading,
 two DC motors on L293D H-bridges, Arduino Uno R4 Minima. Sketch in
 `arduino/mount_tracker/`; compiles clean under `-Wall -Wextra -Werror`.
+
+```bash
+make firmware        # install pinned libraries, ensure the core, compile
+make firmware-libs   # just the sketchbook libraries
+```
+
+The sketch's Adafruit libraries are **not vendored** — `arduino-cli` resolves
+libraries from the Arduino sketchbook, so a clean machine would otherwise fail
+with `Adafruit_LSM303_Accel.h: No such file or directory`. Their versions are
+pinned in [`arduino/mount_tracker/libraries.txt`](arduino/mount_tracker/libraries.txt),
+which `make firmware` reads. Override the CLI with `ARDUINO_CLI=arduino-cli`.
+
+Because the mount physically moves, the sketch also validates every inbound
+target (`sscanf`'s `%f` accepts `nan` and `inf`) and stops driving if no command
+arrives for 5 s — a pulled cable or a crashed host must not leave the motors
+running. Telemetry keeps flowing past expiry with a `STALE` marker, so the
+failure is visible rather than silent.
 
 ## License
 
