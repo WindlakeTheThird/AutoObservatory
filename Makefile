@@ -173,7 +173,7 @@ FW_CFLAGS   = -Wall -Wextra -Werror -Wno-switch   # -Wno-switch: the Arduino cor
 
 firmware-libs:
 	@echo '== installing sketch libraries from $(LIBS_FILE) =='
-	@test -x "$(ARDUINO_CLI)" || { echo "arduino-cli not found at '$(ARDUINO_CLI)' (override with ARDUINO_CLI=)"; exit 1; }
+	@command -v "$(ARDUINO_CLI)" >/dev/null 2>&1 || { echo "::error::arduino-cli not found: '$(ARDUINO_CLI)' (override with ARDUINO_CLI=)"; exit 1; }
 	@grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$$' $(LIBS_FILE) | while read -r lib; do \
 	    echo "  -> $$lib"; $(ARDUINO_CLI) lib install "$$lib" >/dev/null || exit 1; \
 	done
@@ -181,6 +181,7 @@ firmware-libs:
 
 # `arduino:renesas_uno` is in Arduino's own package index; no third-party index.
 firmware-core:
+	@command -v "$(ARDUINO_CLI)" >/dev/null 2>&1 || { echo "::error::arduino-cli not found: '$(ARDUINO_CLI)' (override with ARDUINO_CLI=)"; exit 1; }
 	@$(ARDUINO_CLI) core install arduino:renesas_uno >/dev/null 2>&1 \
 	  || { $(ARDUINO_CLI) core update-index && $(ARDUINO_CLI) core install arduino:renesas_uno; }
 	@$(ARDUINO_CLI) board listall | grep -q "$(FQBN)" \
