@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <string>
 #include <cstring>
+#include <ctime>
 #include <vector>
 #include <chrono>
 #include <thread>
@@ -14,8 +15,14 @@
 
 // ponytail: same wrapper as main.cpp's MagneticDeclination — extract to a
 // shared header if a third consumer appears.
+//
+// NOTE the init test: wmm_init returns NON-ZERO ON SUCCESS (1 for a loaded
+// model, 0 when the COF cannot be opened). Testing `== 0` here made init
+// always fail, so declination silently stayed 0.0 and DECL:0.0000 was sent and
+// stored in the sketch's EEPROM -- a ~3.8 deg azimuth error at 45N 10E, roughly
+// 25x the firmware deadband. main.cpp had this right; the two had drifted.
 struct MagDecl {
-    bool init(const char* cof = "WMM2025.COF") { return wmm_init(cof) == 0; }
+    bool init(const char* cof = "WMM2025.COF") { return wmm_init(cof) != 0; }
     double declination(double lat, double lon, double year) {
         double decl, incl, F, GV, X, Y, Z, H;
         if (wmm_point(0.0, lat, lon, year, &decl, &incl, &F, &GV, &X, &Y, &Z, &H) != 0)
@@ -110,12 +117,36 @@ static int runMain(int argc, char* argv[])
     std::string dev = rest.empty() ? "/dev/ttyUSB0" : rest[0];
     int baud = rest.size() > 1 ? ParseIntArg(rest[1].c_str(), "baud rate") : 115200;
 
-    // 3's WMM declination is computed up front so --dry-run can print it.
-    double year = 2026.72; // ponytail: fixed decimal year; pass as arg if precision matters
-    MagDecl magDecl;
-    double decl = 0.0;
-    if (magDecl.init())
-        decl = magDecl.declination(lat, lon, year);
+// 3's WMM declination is computed up front so --dry-run can print it.
+      //
+      // Decimal year now comes from the system clock. It was hardcoded to
+      // 2026.72, which goes stale: declination drifts roughly 0.2 deg/yr, the
+      // same order as the azimuth error calibration exists to remove.
+      std::time_t now = std::time(nullptr);
+      std::tm utc{};
+      gmtime_r(&now, &utc);
+      double year = (utc.tm_year + 1900) + utc.tm_yday / 365.25;
+
+      MagDecl magDecl;
+      // A wrong DECL is worse than no calibration: it is stored in the sketch's
+      // EEPROM and silently biases every later azimuth. Fail loudly instead of
+      // defaulting to 0.0 and reporting success.
+      if (!magDecl.init())
+      {
+          std::fprintf(stderr,
+              "Cannot load the WMM model (WMM2025.COF). Run from the project root,\n"
+              " or pass an explicit model path. Refusing to calibrate with an\n"
+              " unknown declination - a wrong DECL is stored in EEPROM.\n");
+          return 1;
+      }
+      double decl = magDecl.declination(lat, lon, year);
+      if (decl == 0.0)
+      {
+          std::fprintf(stderr,
+              "WMM returned no declination for %.3f, %.3f. Refusing to continue:\n"
+              " a zero here would be stored in EEPROM and bias every azimuth.\n", lat, lon);
+          return 1;
+      }
 
     if (dryRun)
     {

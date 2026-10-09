@@ -42,7 +42,7 @@ gui-clean:
 
 # make check = both ephemeris implementations plus name resolution (unit +
 # C++ and Pascal GUI end-to-end). One command, one exit status.
-check: check-cpp check-view check-horiz check-name check-cli check-csv check-select check-select-gui check-hg check-cat check-gui check-vsop
+check: check-cpp check-view check-horiz check-name check-cli check-csv check-select check-select-gui check-hg check-cat check-gui check-vsop check-mag
 
 check-cpp: planetarium
 	@echo '== C++ ephemeris check =='
@@ -89,6 +89,16 @@ check-cli: planetarium autoobservatory calibrate
 check-vsop:
 	@echo '== VSOP87 table cross-check =='
 	@python3 tools/vsopcheck.py
+
+# Magnetic declination at known sites. A wrong value is written into the
+# sketch's EEPROM by `calibrate` and silently biases every later azimuth, so it
+# is worth pinning. Also asserts wmm_init's undocumented return convention
+# (non-zero = success), which calibrate.cpp once had inverted.
+check-mag: calibrate
+	@echo '== magnetic-declination check =='
+	@$(CC) $(CFLAGS) -o tools/magcheck tools/magcheck.cpp -I. $(LIBS)
+	@tools/magcheck
+	@rm -f tools/magcheck
 
 # Malformed-input regression net for the two CSV readers: missing files,
 # '#' comments, truncated rows, non-numeric fields, CRLF endings. Asserts the
