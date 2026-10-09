@@ -19,14 +19,31 @@ Arduino firmware for the 2-axis AZ/ALT mount driven by the [[Autoobservatory Pro
 ## Serial protocol
 
 Host → sketch:
-- `AZ:<deg> ALT:<deg>\n` — target position (true azimuth after DECL is set), 115200 baud, already slew-rate-limited by the host
+- `AZ:<deg> ALT:<deg>\n` — target position (true azimuth after DECL is set), 115200 baud, already slew-rate-limited by the host. Validated on arrival; out-of-range or non-finite values are refused and counted (see Safety below).
 - `CAL` — start self-calibration
 - `DECL:<deg>` — WMM magnetic declination (host queries WMM2025)
 
 Sketch → host:
 - `CAL:<az> <alt> azoff=N altoff=N` — calibration result
-- `ERR:<az> <alt> cur ... tgt ...` — 1 Hz telemetry for verification
+- `ERR:<azErr> <altErr> cur <az>/<alt> tgt <az>/<alt>[ STALE] rej=<n>` — 1 Hz telemetry for verification
 - `UNCALIBRATED` — AZ/ALT targets refused until calibrated
+- `REJECT: <reason>` — a target line failed validation (non-finite, altitude out of range, implausible azimuth)
+- `STALE: no command for 5s - motors stopped` — the command watchdog expired
+
+## Safety: target validation and the stale-command watchdog
+
+The mount physically moves, so two guards sit in front of the motors.
+
+**`acceptTarget()` validates every inbound line before it can drive anything.** `sscanf`'s `%f` accepts `nan` and `inf` exactly as readily as a number, and nothing range-checked altitude or azimuth, so a garbled or bit-corrupted serial line could reach `driveAxis()` and produce an undefined PWM duty. Rejected values increment a `rej=` counter reported in `ERR:`, so a host-side protocol bug becomes a visible number rather than a silently ignored line.
+
+**`CMD_TIMEOUT_MS` (5 s) watchdog.** If no target command arrives within that window, the command link is presumed gone — cable pulled, host crashed, port closed — and the sketch stops driving. The mount coasts to a stop and stays there.
+
+Two details make this safe rather than merely present:
+
+- **Telemetry continues after expiry.** `ERR:` keeps flowing with a `STALE` marker, so the failure is *visible*. A silent freeze would leave the operator unable to tell a stopped mount from a broken link.
+- **STALE reports the real error**, not zero, relative to the last commanded target. Reporting 0 would make a mount parked mid-travel indistinguishable from one that reached its target.
+
+Any host that commands the mount must therefore keep commanding it. `autoobservatory` re-sends every 100 ms, so it is comfortably inside the window. `calibrate` sends its verify target once and then only listens, so it now **re-sends `AZ:0 ALT:30` every second** during the watch loop and **hard-fails on a STALE line** — without those two changes a 5 s stall would have let it print "mount is calibrated to TRUE north" with the mount parked in the wrong place.
 
 ## Calibration (homing) routine
 

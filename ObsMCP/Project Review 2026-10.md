@@ -6,7 +6,9 @@ tags: [review, planning]
 
 Code review of the [[Autoobservatory Project]] on 2026-10-08, cross-checked against the vault and the source. Ranked by impact.
 
-**Status after this session:** #1 done (git initialised, 55 files committed, pushed), #2 done (and it turned out to be hiding a much larger bug), #3 done (CI added). #4 and #5 remain open. #2 and #6(c) were investigated and closed as non-issues, with the measurements recorded below.
+**Status after this session:** #1 done (git initialised, 58 files committed, pushed). #2 done — and it turned out to be hiding two much larger bugs, now fixed. #3 done (CI added). #5 done. #7's three documentation contradictions done; the `DateTime` refactor remains. #4 done. #6 accepted as out of scope (the catalog is transformed from external data and its generator is gone).
+
+`make check` is green at **12/12 targets**, and the suite now has four checks it did not have before: `check-horiz`, `check-csv`, `check-vsop`, and the generated ephcheck reference table.
 
 The architecture is sound: the seams (`sky_view.h`, `object_name.h`, `cli_parse.h`, the CSV→engine function) are real single points of truth, and the regression net is unusually good for a project this size. The findings below are gaps in the guardrails, not in the design.
 
