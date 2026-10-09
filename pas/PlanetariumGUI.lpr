@@ -25,9 +25,10 @@ type
   TSkyPoint = record
     Name: string;
     Az, Alt, Mag: Double;
-    Sym: Char;
-    IsPlanet: Boolean;
-    Bayer: string; // Bayer designation (e.g. Alpha_Boo) for stars; empty for clusters
+Sym: Char;
+      IsPlanet: Boolean;
+      IsSun: Boolean; // the Sun: a planet-flagged sky object in the Sun & Moon group
+      Bayer: string; // Bayer designation (e.g. Alpha_Boo) for stars; empty for clusters
     ScreenX, ScreenY: Integer; // last drawn pixel position (for hit-testing)
     Visible: Boolean;
   end;
@@ -114,13 +115,15 @@ begin
          or (Pos('Hyades', AName) > 0) or (Pos('Beehive', AName) > 0);
 end;
 
-// Which legend group an object belongs to: 0 = Moon (the Sun is drawn on the
-// dome but is not in Sky), 1 = planets & dwarf planets, 2 = stars & clusters.
+// Which legend group an object belongs to: 0 = Sun & Moon, 1 = planets & dwarf
+// planets, 2 = stars & clusters. The Sun is a sky object like any other (marked
+// IsSun) so it is selectable, clickable and listed with the Moon rather than
+// being drawn straight onto the dome.
 function InLegendGroup(const P: TSkyPoint; Group: Integer): Boolean;
 begin
   case Group of
-    0: Result := P.Name = 'Moon';
-    1: Result := P.IsPlanet and (P.Name <> 'Moon');
+    0: Result := P.IsSun or (P.Name = 'Moon');
+    1: Result := P.IsPlanet and not P.IsSun and (P.Name <> 'Moon');
     2: Result := not P.IsPlanet;
   else
     Result := False;
@@ -218,6 +221,7 @@ Az, Alt: Double;
   StarRA, StarDec: Double;
   Sym: Char;
   Counter, ClusterNum: Integer;
+  SunRA2, SunDec2: Double;
 begin
   GetUTC(NowT);
   Y := NowT.Year; Mo := NowT.Month; D := NowT.Day;
@@ -278,6 +282,7 @@ begin
     Sky[High(Sky)].Mag := Stars[I].Magnitude;
     Sky[High(Sky)].Sym := Sym;
     Sky[High(Sky)].IsPlanet := False;
+    Sky[High(Sky)].IsSun := False;
     Sky[High(Sky)].Bayer := Stars[I].Bayer;
   end;
 
@@ -296,8 +301,23 @@ begin
     Sky[High(Sky)].Mag := Planets[I].Magnitude;
     Sky[High(Sky)].Sym := Sym;
     Sky[High(Sky)].IsPlanet := True;
+    Sky[High(Sky)].IsSun := False;
     Sky[High(Sky)].Bayer := '';
   end;
+
+  // Sun: no catalog row, position from the solar model. Added to Sky (not drawn
+  // ad hoc on the dome) so it is selectable, clickable and listed in the legend.
+  SunRAandDec(JD, SunRA2, SunDec2);
+  HorizontalCoordsAt(FrameWhen, FrameSite, SunRA2, SunDec2, Az, Alt);
+  SetLength(Sky, Length(Sky) + 1);
+  Sky[High(Sky)].Name := 'Sun';
+  Sky[High(Sky)].Az := Az;
+  Sky[High(Sky)].Alt := Alt;
+  Sky[High(Sky)].Mag := SunMagnitude;
+  Sky[High(Sky)].Sym := '@';
+  Sky[High(Sky)].IsPlanet := True;
+  Sky[High(Sky)].IsSun := True;
+  Sky[High(Sky)].Bayer := '';
 
   LastSecond := NowT.Second;
 end;
@@ -443,20 +463,6 @@ begin
   if ProjectPoint(0.0, 90.0, X, Y) then
     C.TextOut(Round(X) - 3, Round(Y) - 8, '+');
 
-  // sun (if up) - uses CurrentJD set by UpdateSky (fixed or live)
-  JD := CurrentJD;
-  SunRAandDec(JD, SunRAH, SunDecD);
-  JDToCalendar(JD, Y2, Mo2, D2, H2, Mi2, S2);
-  HorizontalCoordsAt(UtcDateTimeAt(Y2, Mo2, D2, H2, Mi2, S2),
-    FrameSite, SunRAH, SunDecD, SunAz, SunAlt);
-  if (SunAlt > 0) and ProjectPoint(SunAz, SunAlt, X, Y) then
-  begin
-    C.Font.Color := clYellow;
-    C.Font.Style := [fsBold];
-    C.TextOut(Round(X) - 4, Round(Y) - 8, '@');
-    C.Font.Style := [];
-  end;
-
   // reset visibility flags from previous frame
   for I := 0 to High(Sky) do
   begin
@@ -498,7 +504,12 @@ begin
           C.Pen.Color := clAqua;
         C.Ellipse(Round(X) - 8, Round(Y) - 8, Round(X) + 8, Round(Y) + 8);
       end;
-      if P.IsPlanet then
+      if P.IsSun then
+      begin
+        C.Font.Color := clYellow;
+        C.Font.Style := [fsBold];
+      end
+      else if P.IsPlanet then
         C.Font.Color := clLime
       else if P.Sym = 'O' then
         C.Font.Color := clYellow
@@ -506,6 +517,7 @@ begin
         C.Font.Color := clWhite;
       C.Font.Size := 10;
       C.TextOut(Round(X) - 4, Round(Y) - 8, P.Sym);
+      if P.IsSun then C.Font.Style := [];
     end;
   end;
 

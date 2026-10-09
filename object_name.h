@@ -44,6 +44,9 @@ inline std::vector<std::string> LoadCatalogNames()
     std::vector<CelestialObject> stars;
     try { stars = CelestialObjectReader::ReadFromCSV("celestial_objects.csv"); } catch (...) {}
     for (auto& s : stars) names.push_back(s.name);
+    // The Sun is not a catalog row: its position comes from the solar model, so
+    // it is added to the selectable-name list by hand.
+    names.push_back("Sun");
     double jd = JulianDate(2026, 1, 1, 0, 0, 0, 0.0);
     for (auto& p : GetPlanetaryObjects(jd)) names.push_back(p.name);
     return names;

@@ -197,15 +197,6 @@ static bool ProjectToCell(double azDeg, double altDeg, int& x, int& y)
     return true;
 }
 
-// Plot an above-horizon object (below-horizon positions are not on the map).
-static void Plot(double azDeg, double altDeg, char sym)
-{
-    if (altDeg <= 0.0) return;
-    int x, y;
-    if (!ProjectToCell(azDeg, altDeg, x, y)) return; // outside the --fov field
-    if (x >= 0 && x < W && y >= 0 && y < H) grid[y][x] = sym;
-}
-
 // Draw a two-cell frame around an object so the cursor/target is visible on the
 // dome even when the object's own symbol is shared with a neighbour.
 static void MarkObject(double azDeg, double altDeg, char left, char right)
@@ -264,22 +255,6 @@ static void DrawCardinals()
         int y = (int)std::round(py + dy * 1.2);
         if (x >= 0 && x < W && y >= 0 && y < H) grid[y][x] = labels[k][0];
     }
-}
-
-// Sun geocentric RA (hours) / Dec (deg) from the low-precision solar formula
-// already used for moon phase. ponytail: same model, no extra accuracy needed
-// for a header field and a map marker.
-static void SunRAandDec(double jd, double& raHours, double& decDeg)
-{
-    double T = (jd - 2451545.0) / 36525.0;
-    double L0 = 280.46646 + 36000.76983 * T;
-    double M = 357.52911 + 35999.05029 * T;
-    double C = 1.914602 * std::sin(M * M_PI / 180.0);
-    double lambda = (L0 + C) * M_PI / 180.0;
-    double ra = std::atan2(std::cos(23.4393 * M_PI / 180.0) * std::sin(lambda), std::cos(lambda)) * 12.0 / M_PI;
-    if (ra < 0) ra += 24.0;
-    raHours = ra;
-    decDeg = std::asin(std::sin(23.4393 * M_PI / 180.0) * std::sin(lambda)) * 180.0 / M_PI;
 }
 
 // Twilight band from the sun's altitude:
@@ -490,12 +465,15 @@ static void RenderFrame(double lat, double lon, double magLimit,
             grid[zy][zx] = '+';
     }
 
-    // Sun: computed once, drawn above horizon, reported in the header
-    double sunRA, sunDec;
-    SunRAandDec(jd, sunRA, sunDec);
-    auto [sunAz, sunAlt] = CalculateHorizontalCoordinates(g_when, g_site, sunRA, sunDec);
-    bool sunUp = sunAlt > 0;
-    if (sunUp) Plot(sunAz, sunAlt, '@');
+// Sun: computed once, drawn above horizon, reported in the header.
+      // Pushed into sky (not plotted ad hoc) so it lands in the legend and the
+      // live target picker like every other selectable object.
+      double sunRA, sunDec;
+      SunRAandDec(jd, sunRA, sunDec);
+      auto [sunAz, sunAlt] = CalculateHorizontalCoordinates(g_when, g_site, sunRA, sunDec);
+      bool sunUp = sunAlt > 0;
+      (void)sunUp;
+      sky.push_back({"Sun", sunAz, sunAlt, SUN_MAGNITUDE, true, '@'});
 
     // Plot: brighter above-horizon objects win over fainter at same cell
     std::sort(sky.begin(), sky.end(), [](const SkyObject& a, const SkyObject& b) {

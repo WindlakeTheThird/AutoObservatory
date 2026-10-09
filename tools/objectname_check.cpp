@@ -18,9 +18,13 @@
 static const std::vector<std::string> kCatalog = {
     "Vega", "Arcturus", "Mars", "Markab", "Makemake", "Moon", "Venus",
     // Messier rows in BOTH spellings the catalog uses.
-    "Lagoon Nebula (M8)", "M11 (Wild Duck Cluster)", "M80", "M81",
-    "Andromeda Galaxy (M31)", "M101",
-};
+"Lagoon Nebula (M8)", "M11 (Wild Duck Cluster)", "M80", "M81",
+      "Andromeda Galaxy (M31)", "M101",
+      // Added by hand by LoadCatalogNames(), not a catalog row.
+      "Sun",
+      // Shares the "Sun" prefix with the star.
+      "Sunflower Galaxy (M63)",
+  };
 
 struct Case {
     const char* query;
@@ -39,8 +43,9 @@ static const Case kCases[] = {
     {"moon",     "Moon",       0},
     {"ctur",     "Arcturus",   0},  // unique substring
     {"ma",       nullptr,      3},  // ambiguous prefix: Markab, Mars, Makemake
-    {"u",        nullptr,      4},  // ambiguous substring: Arcturus, Venus,
-                                   // Lagoon Nebula, M11 (Wild Duck Cluster)
+    {"u",        nullptr,      6},  // ambiguous substring: Arcturus, Venus,
+                                   // Lagoon Nebula, M11 (Wild Duck Cluster),
+                                   // Sun, Sunflower Galaxy (M63)
     {"zzzzz",    nullptr,      0},  // nothing matches
 
     // --- Messier designations -------------------------------------------------
@@ -56,6 +61,15 @@ static const Case kCases[] = {
     {"M101",     "M101",       0},           // must not match "M10" / "M1"
     {"M110",     nullptr,      0},           // not in this synthetic catalog
     {"M8x",      nullptr,      0},           // not a Messier token at all
+
+    // --- the Sun ---------------------------------------------------------------
+    // Not a catalog row: LoadCatalogNames() adds it by hand because its position
+    // comes from the solar model rather than celestial_objects.csv. It must still
+    // resolve exactly, and must not swallow the galaxies whose names start with
+    // "Sun" now that a "Sun" row exists.
+    {"sun",      "Sun",        0},           // exact, lower case
+    {"SUN",      "Sun",        0},           // exact, upper case
+    {"sunflower", "Sunflower Galaxy (M63)", 0},  // prefix must not resolve to the Sun
 };
 
 int main()

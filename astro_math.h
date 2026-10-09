@@ -156,4 +156,25 @@ inline std::pair<double, double> HorizontalCoordinatesAtJulian(
     return CalculateAzimuthFromJulian(jd, site.latDeg, site.lonDeg, raHours, decDeg);
 }
 
+// Visual magnitude of the Sun, used wherever it appears as a selectable target
+// (legend entry, dome marker, slew target). Bright enough to clear any sane
+// magnitude limit, which is what keeps it out of the "too faint" filter.
+inline constexpr double SUN_MAGNITUDE = -26.9;
+
+// Sun geocentric RA (hours) / Dec (deg) from the low-precision solar formula
+// already used for moon phase. ponytail: same model, no extra accuracy needed
+// for a header field and a map marker.
+inline void SunRAandDec(double jd, double& raHours, double& decDeg)
+{
+    double T = (jd - 2451545.0) / 36525.0;
+    double L0 = 280.46646 + 36000.76983 * T;
+    double M = 357.52911 + 35999.05029 * T;
+    double C = 1.914602 * std::sin(M * M_PI / 180.0);
+    double lambda = (L0 + C) * M_PI / 180.0;
+    double ra = std::atan2(std::cos(23.4393 * M_PI / 180.0) * std::sin(lambda), std::cos(lambda)) * 12.0 / M_PI;
+    if (ra < 0) ra += 24.0;
+    raHours = ra;
+    decDeg = std::asin(std::sin(23.4393 * M_PI / 180.0) * std::sin(lambda)) * 180.0 / M_PI;
+}
+
 #endif

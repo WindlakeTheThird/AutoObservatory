@@ -26,8 +26,19 @@ printf '%s' "$out" | grep -q 'Target set: Vega' \
   || { echo "namecheck_gui FAILED: 'vega' did not resolve to Vega" >&2; exit 1; }
 
 out=$(run arctur || true)
-printf '%s' "$out" | grep -q 'Target set: Arcturus' \
-  || { echo "namecheck_gui FAILED: 'arctur' did not resolve to Arcturus" >&2; exit 1; }
+  printf '%s' "$out" | grep -q 'Target set: Arcturus' \
+    || { echo "namecheck_gui FAILED: 'arctur' did not resolve to Arcturus" >&2; exit 1; }
+  
+  # The Sun has no catalog row (position from the solar model) but is a real sky
+  # object here, so it must resolve and lock like any other target.
+  out=$(run sun || true)
+  printf '%s' "$out" | grep -q 'Target set: Sun' \
+    || { echo "namecheck_gui FAILED: 'sun' did not resolve to Sun" >&2; exit 1; }
+  
+  # The CSV column-name row must not become a phantom object named "name".
+  if run name >/dev/null 2>&1; then
+    echo "namecheck_gui FAILED: phantom 'name' object still selectable" >&2; exit 1
+  fi
 
 # --follow takes no value and must not swallow the target: parsing still reaches
 # --select and prints its line before the window is killed by the timeout.

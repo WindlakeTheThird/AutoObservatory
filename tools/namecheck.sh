@@ -28,6 +28,14 @@ check "planetarium exact 'vega'"       "$(sel vega || true)"       'Target set: 
 check "planetarium fuzzy 'arctur'"     "$(sel arctur || true)"     'Target set: Arcturus'
 check "autoobservatory exact 'vega'"   "$(obj vega || true)"       'Target: Vega'
 check "autoobservatory fuzzy 'arctur'" "$(obj arctur || true)"     'Target: Arcturus'
+# The Sun is not a catalog row (position comes from the solar model) but must
+# resolve as a target like any other object, so it can be locked and slewed to.
+check "planetarium exact 'sun'"       "$(sel sun || true)"       'Target set: Sun'
+check "planetarium exact 'SUN'"       "$(sel SUN || true)"       'Target set: Sun'
+check "autoobservatory exact 'sun'"   "$(obj sun || true)"       'Target: Sun'
+check "autoobservatory exact 'Sun'"   "$(obj Sun || true)"       'Target: Sun'
+# A prefix must not steal the Sun: "sunflower" is the galaxy, not the star.
+check "planetarium 'sunflower'"       "$(sel sunflower || true)" 'Target set: Sunflower Galaxy (M63)'
 
 for q in ma zzzzz; do
   must_fail "planetarium '$q'" sel "$q"

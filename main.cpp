@@ -559,6 +559,28 @@ void DisplayResults(double observerLat, double observerLon, bool visibleOnly, st
                   << std::setw(14) << status << std::endl;
     }
 
+    // Sun: no catalog row, position from the solar model.
+    if (!targetName.empty() && CaseInsensitiveEq(targetName, "Sun"))
+    {
+        found = true;
+        double sunRa = 0.0, sunDec = 0.0;
+        SunRAandDec(jd, sunRa, sunDec);
+        auto [az, alt] = CalculateHorizontalCoordinates(when, site, sunRa, sunDec);
+
+        if (visibleOnly && alt < 0.0) return;
+
+        if (magneticMode) {
+            az = NormalizeDegrees(az - magneticDeclination);
+        }
+
+        std::string status = alt < 0 ? "BELOW HORIZON" : "VISIBLE";
+        std::cout << std::setw(25) << std::left << "Sun"
+                  << std::setw(12) << std::right << az << "\xC2\xB0 "
+                  << std::setw(11) << alt << "\xC2\xB0 "
+                  << std::setw(8) << SUN_MAGNITUDE
+                  << std::setw(14) << status << std::endl;
+    }
+
     if (!targetName.empty() && !found)
     {
         std::cout << "Object not found: " << targetName << std::endl;
@@ -606,6 +628,13 @@ void DisplayArduinoResults(double observerLat, double observerLon, std::string t
                 return CalculateHorizontalCoordinates(when, site,
                                                     planet.rightAscensionHours, planet.declinationDegrees);
             }
+        }
+        // Sun: no catalog row, position from the solar model.
+        if (CaseInsensitiveEq(name, "Sun"))
+        {
+            double sunRa = 0.0, sunDec = 0.0;
+            SunRAandDec(jd, sunRa, sunDec);
+            return CalculateHorizontalCoordinates(when, site, sunRa, sunDec);
         }
         return {0.0, 0.0};
     };

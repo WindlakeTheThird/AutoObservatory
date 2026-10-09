@@ -69,7 +69,12 @@ procedure HorizontalCoordsAtJulian(JD: Double; const Site: TObserver;
 procedure PrecessRaDecJ2000ToDate(JD: Double; var RAHours, DecDeg: Double);
 procedure JDToCalendar(JD: Double; out Y, Mo, D, H, Mi, S: Double);
 procedure SunRAandDec(JD: Double; out RAHours, DecDeg: Double);
-procedure ComputeMoonGeocentric(JD: Double; out RAHours, DecDeg, Magnitude: Double);
+  // Visual magnitude of the Sun, used wherever it appears as a selectable target
+  // (legend entry, dome marker, slew target). Mirrors SUN_MAGNITUDE in
+  // astro_math.h. Bright enough to clear any sane magnitude limit.
+  const
+    SunMagnitude = -26.9;
+  procedure ComputeMoonGeocentric(JD: Double; out RAHours, DecDeg, Magnitude: Double);
 procedure ComputePlanetFromElements(const Elem: array of Double; MagBase, G, JD: Double;
   const ObjName: string;
   out RAHours, DecDeg, Magnitude: Double); // Elem = a,e,N,i,w,M0,dM,dN,di,dw,da,de
@@ -877,10 +882,15 @@ begin
   if not FileExists(CsvPath) then Exit;
   Sl := TStringList.Create;
   try
-    Sl.LoadFromFile(CsvPath);
-    for I := 1 to Sl.Count - 1 do
-    begin
-      if Trim(Sl[I]) = '' then Continue;
+      Sl.LoadFromFile(CsvPath);
+      for I := 1 to Sl.Count - 1 do
+      begin
+        // Skip the provenance comments and the column-name row, exactly as
+        // CelestialObjectReader::ReadFromCSV does on the C++ side. Without the
+        // header check the row parses into a phantom object literally named
+        // "name" that the legend lists and --select happily locks on to.
+        if (Trim(Sl[I]) = '') or (Sl[I][1] = '#') then Continue;
+        if Copy(Sl[I], 1, 5) = 'name,' then Continue;
       Parts := SplitCsv(Sl[I]);
       if Length(Parts) < 9 then Continue;
       Obj.Name := Parts[0];
@@ -962,6 +972,7 @@ begin
       for I := 1 to Sl.Count - 1 do
       begin
         if (Trim(Sl[I]) = '') or (Sl[I][1] = '#') then Continue;
+          if Copy(Sl[I], 1, 5) = 'name,' then Continue; // column-name row
         Parts := SplitCsv(Sl[I]);
         if Length(Parts) < 14 then Continue;
         for K := 1 to 12 do
