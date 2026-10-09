@@ -122,25 +122,10 @@ jobs:
           arduino-cli board listall | grep -q "arduino:renesas_uno:minima" \
             || { echo "::error::arduino:renesas_uno:minima not in board list"; exit 1; }
 
-      # The sketch's headers live in the ARDUINO SKETCHBOOK (~/Arduino/libraries
-      # on a dev box), which a CI runner does not have -- so the compile fails
-      # with "Adafruit_LSM303_Accel.h: No such file or directory". Install them
-      # from Library Manager instead.
-      #
-      # Versions are pinned to the ones this project is developed against, so CI
-      # and local build against the same drivers. Library Manager resolves the
-      # transitive dependencies itself (Adafruit Unified Sensor, Adafruit BusIO).
-      - name: Install sketch libraries
-        run: |
-          set -euo pipefail
-          arduino-cli lib install "Adafruit LSM303 Accel@1.1.9"
-          arduino-cli lib install "Adafruit LSM303DLH Mag@1.0.11"
-          echo "--- installed ---"
-          arduino-cli lib list
-
-      - name: Compile mount_tracker strictly
-        run: |
-          set -euo pipefail
-          arduino-cli compile --fqbn arduino:renesas_uno:minima \
-            --build-property "compiler.cpp.extra_flags=-Wall -Wextra -Werror -Wno-switch" \
-            arduino/mount_tracker
+      # Compile via the Makefile, which installs the sketch's libraries from
+      # the pinned arduino/mount_tracker/libraries.txt before building. Keeping
+      # this in one place means CI and `make firmware` on a dev machine install
+      # identical drivers -- and a dependency added to the sketch without a
+      # libraries.txt entry fails CI instead of only failing locally.
+      - name: Build firmware (libraries + strict compile)
+        run: make firmware ARDUINO_CLI=arduino-cli

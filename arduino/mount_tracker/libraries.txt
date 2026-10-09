@@ -1,0 +1,19 @@
+# Sketch dependencies for mount_tracker (Autoobservatory).
+#
+# The two Adafruit drivers this sketch #includes are NOT vendored in the repo:
+# arduino-cli resolves libraries from the Arduino sketchbook (~/Arduino/libraries
+# by default), so a fresh clone on a clean machine fails to compile with
+#   fatal error: Adafruit_LSM303_Accel.h: No such file or directory
+#
+# Install them with:
+#   make firmware-libs        (adds them to the sketchbook)
+# or just build the sketch, which does it for you:
+#   make firmware
+#
+# Format: one Library Manager "Name@Version" per line; # comments allowed.
+# Versions are pinned to what this project is developed and tested against.
+# Transitive dependencies (Adafruit Unified Sensor, Adafruit BusIO) are
+# resolved automatically by arduino-cli lib install -- do NOT list them here,
+# or the pins below can silently disagree with what gets installed.
+Adafruit LSM303 Accel@1.1.9
+Adafruit LSM303DLH Mag@1.0.11

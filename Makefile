@@ -156,3 +156,37 @@ clean:
 	rm -f selected_target.txt mount_status.txt
 	rm -f selected_target.txt.tmp.* mount_status.txt.tmp.*
 	rm -f pas/*.ppu pas/*.o pas/*.or pas/PlanetariumGUI pas/PasPlanetariumGUI pas/viewcheck_pas pas/horzcheck_pas
+
+# ---- Arduino firmware ----
+# The sketch's libraries are resolved from the Arduino sketchbook, which is not
+# version-controlled, so a clean machine cannot build the firmware out of the
+# box. Dependencies are pinned in arduino/mount_tracker/libraries.txt and
+# installed by `make firmware-libs`; `make firmware` does that then compiles.
+#
+# ARDUINO_CLI defaults to the project-local vendored CLI (./bin, gitignored).
+# CI installs arduino-cli to PATH, so it overrides with ARDUINO_CLI=arduino-cli.
+SKETCH      = arduino/mount_tracker
+FQBN        = arduino:renesas_uno:minima
+LIBS_FILE   = $(SKETCH)/libraries.txt
+ARDUINO_CLI ?= ./bin/arduino-cli
+FW_CFLAGS   = -Wall -Wextra -Werror -Wno-switch   # -Wno-switch: the Arduino core's own Wire.cpp
+
+firmware-libs:
+	@echo '== installing sketch libraries from $(LIBS_FILE) =='
+	@test -x "$(ARDUINO_CLI)" || { echo "arduino-cli not found at '$(ARDUINO_CLI)' (override with ARDUINO_CLI=)"; exit 1; }
+	@grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$$' $(LIBS_FILE) | while read -r lib; do \
+	    echo "  -> $$lib"; $(ARDUINO_CLI) lib install "$$lib" >/dev/null || exit 1; \
+	done
+	@$(ARDUINO_CLI) lib list
+
+# `arduino:renesas_uno` is in Arduino's own package index; no third-party index.
+firmware-core:
+	@$(ARDUINO_CLI) core install arduino:renesas_uno >/dev/null 2>&1 \
+	  || { $(ARDUINO_CLI) core update-index && $(ARDUINO_CLI) core install arduino:renesas_uno; }
+	@$(ARDUINO_CLI) board listall | grep -q "$(FQBN)" \
+	  || { echo "::error::$(FQBN) not registered; run 'make firmware-core' with network access"; exit 1; }
+
+firmware: firmware-core firmware-libs
+	@echo '== compiling $(SKETCH) for $(FQBN) =='
+	@$(ARDUINO_CLI) compile --fqbn $(FQBN) \
+	  --build-property "compiler.cpp.extra_flags=$(FW_CFLAGS)" $(SKETCH)
