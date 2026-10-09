@@ -130,7 +130,8 @@ int main()
         ++lineno;
         std::string line(buf);
         while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
-        if (lineno == 1 || line.empty()) continue;
+        if (line.empty() || line[0] == '#') continue;   // provenance comments
+        if (line.rfind("name,", 0) == 0) continue; // column-name row
         Row r; std::string err;
         if (!ParseRow(line, r, err))
         {
