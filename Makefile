@@ -38,7 +38,7 @@ gui-clean:
 
 # make check = both ephemeris implementations plus name resolution (unit +
 # C++ and Pascal GUI end-to-end). One command, one exit status.
-check: check-cpp check-view check-horiz check-name check-cli check-csv check-select check-select-gui check-hg check-cat check-gui
+check: check-cpp check-view check-horiz check-name check-cli check-csv check-select check-select-gui check-hg check-cat check-gui check-vsop
 
 check-cpp: planetarium
 	@echo '== C++ ephemeris check =='
@@ -77,6 +77,14 @@ check-view:
 check-cli: planetarium autoobservatory calibrate
 	@echo '== CLI argument check =='
 	@sh tools/clicheck.sh
+
+# Cross-check the two generated VSOP87 tables (vsop87_trunc.h vs
+# pas/vsop87_trunc.inc). ephcheck CANNOT catch a divergence here: its tolerance
+# is 0.03 deg (108 arcsec) while one VSOP87 term is worth ~0.2 arcsec, so ~500
+# terms would have to vanish before ephcheck noticed. See tools/vsopcheck.py.
+check-vsop:
+	@echo '== VSOP87 table cross-check =='
+	@python3 tools/vsopcheck.py
 
 # Malformed-input regression net for the two CSV readers: missing files,
 # '#' comments, truncated rows, non-numeric fields, CRLF endings. Asserts the
@@ -134,6 +142,7 @@ check-cat:
 # (the CSVs are looked up there).
 check-gui:
 	@echo '== Pascal ephemeris check =='
+	@python3 tools/ephcheck_gen.py
 	@cd pas && $(FPC) -Fu. -oephcheck_pas ephcheck_pas.lpr >/dev/null
 	@./pas/ephcheck_pas
 	@rm -f pas/ephcheck_pas pas/ephcheck_pas.o
