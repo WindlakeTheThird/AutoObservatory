@@ -93,6 +93,10 @@ const
 
 var
   SkyForm: TSkyForm;
+  // Frame instant and site, published once per redraw and reused by every
+  // az/alt conversion so the date fields cannot drift between call sites.
+  FrameWhen: TUtcDateTime;
+  FrameSite: TObserver;
 
 { TSkyForm }
 
@@ -228,6 +232,10 @@ begin
   else
     JD := JulianDate(Y, Mo, D, H, Mi, S);
   CurrentJD := JD;
+  // Publish the frame's instant and site once; every az/alt conversion this
+  // frame reads these, so the date fields cannot drift between call sites.
+  FrameWhen := UtcDateTimeAt(Y, Mo, D, H, Mi, S);
+  FrameSite := ObserverAt(ObsLat, ObsLon);
 
   SetLength(Sky, 0);
   Counter := 0;
@@ -239,7 +247,7 @@ begin
     // Catalog rows are J2000: precess before the horizontal transform.
     StarRA := Stars[I].RAHours; StarDec := Stars[I].DecDeg;
     PrecessRaDecJ2000ToDate(JD, StarRA, StarDec);
-    HorizontalCoords(Y, Mo, D, H, Mi, S, ObsLat, ObsLon, StarRA, StarDec, Az, Alt);
+    HorizontalCoordsAt(FrameWhen, FrameSite, StarRA, StarDec, Az, Alt);
     // Shorthand on the dome: letters for the brightest stars, digits for the
     // brightest star clusters - same scheme as the C++ planetarium.
     if (Stars[I].Magnitude <= 1.5) and (Alt > 0) then
@@ -276,7 +284,7 @@ begin
   Planets := LoadPlanets('planetary_objects.csv', JD);
   for I := 0 to High(Planets) do
   begin
-    HorizontalCoords(Y, Mo, D, H, Mi, S, ObsLat, ObsLon, Planets[I].RAHours, Planets[I].DecDeg, Az, Alt);
+    HorizontalCoordsAt(FrameWhen, FrameSite, Planets[I].RAHours, Planets[I].DecDeg, Az, Alt);
     if Planets[I].Name = 'Moon' then
       Sym := 'O'
     else
@@ -439,8 +447,8 @@ begin
   JD := CurrentJD;
   SunRAandDec(JD, SunRAH, SunDecD);
   JDToCalendar(JD, Y2, Mo2, D2, H2, Mi2, S2);
-  HorizontalCoords(Y2, Mo2, D2, H2, Mi2, S2,
-    ObsLat, ObsLon, SunRAH, SunDecD, SunAz, SunAlt);
+  HorizontalCoordsAt(UtcDateTimeAt(Y2, Mo2, D2, H2, Mi2, S2),
+    FrameSite, SunRAH, SunDecD, SunAz, SunAlt);
   if (SunAlt > 0) and ProjectPoint(SunAz, SunAlt, X, Y) then
   begin
     C.Font.Color := clYellow;
@@ -523,8 +531,8 @@ begin
 
   // sun altitude / twilight state + sunrise/sunset + civil twilight window
   SunRAandDec(JD, SunRA2, SunDec2);
-  HorizontalCoords(Y2, Mo2, D2, H2, Mi2, S2,
-    ObsLat, ObsLon, SunRA2, SunDec2, SunAz2, SunAlt2);
+  HorizontalCoordsAt(UtcDateTimeAt(Y2, Mo2, D2, H2, Mi2, S2),
+    FrameSite, SunRA2, SunDec2, SunAz2, SunAlt2);
   C.TextOut(8, HeaderTop + 12, Format('sun alt %.1f  |  %s', [SunAlt2, TwilightState(SunAlt2)]));
   FindSunEvents(Y2, Mo2, D2, ObsLat, ObsLon, -0.833, Rise, SetT);
   FindSunEvents(Y2, Mo2, D2, ObsLat, ObsLon, -6.0, CRise, CSet);
@@ -952,7 +960,7 @@ begin
   I := LineY;
 end;
 
-// UTC now: Unix epoch -> TDateTime (Delphi epoch 1899-12-30; 25569 days =
+// UTC now: Unix epoch -> TUtcDateTime (Delphi epoch 1899-12-30; 25569 days =
 // 1970-01-01). No local-timezone/DST involvement at all.
 procedure TSkyForm.GetUTC(out ST: TSystemTime);
 var

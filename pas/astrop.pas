@@ -43,8 +43,29 @@ function NormalizeDeg(const D: Double): Double;
 function JulianDate(Y, Mo, D, H, Mi, S: Double): Double;
 function GreenwichMeanSiderealTime(JD: Double): Double;
 function LocalSiderealTime(JD, LonDeg: Double): Double;
+// A calendar instant and a site as named fields, so date components never
+// cross a call boundary as a run of same-typed doubles (transposing minute and
+// second compiles clean and is worth 600x the error). Validation of impossible
+// dates stays in ParseDateArg/ParseTimeArg, at the argument boundary.
+type
+  TUtcDateTime = record
+    Year, Month, Day: Double;
+    Hour, Minute, Second: Double;
+  end;
+
+  TObserver = record
+    LatDeg, LonDeg: Double;
+  end;
+
 procedure HorizontalCoords(Y, Mo, D, H, Mi, S, LatDeg, LonDeg, RAHours, DecDeg: Double;
   out AzDeg, AltDeg: Double);
+procedure HorizontalCoordsAt(const When: TUtcDateTime; const Site: TObserver;
+  RAHours, DecDeg: Double; out AzDeg, AltDeg: Double);
+function JulianDayOf(const When: TUtcDateTime): Double;
+function ObserverAt(LatDeg, LonDeg: Double): TObserver;
+function UtcDateTimeAt(Y, Mo, D, H, Mi, S: Double): TUtcDateTime;
+procedure HorizontalCoordsAtJulian(JD: Double; const Site: TObserver;
+  RAHours, DecDeg: Double; out AzDeg, AltDeg: Double);
 procedure PrecessRaDecJ2000ToDate(JD: Double; var RAHours, DecDeg: Double);
 procedure JDToCalendar(JD: Double; out Y, Mo, D, H, Mi, S: Double);
 procedure SunRAandDec(JD: Double; out RAHours, DecDeg: Double);
@@ -268,6 +289,53 @@ end;
 function LocalSiderealTime(JD, LonDeg: Double): Double;
 begin
   Result := NormalizeDeg(GreenwichMeanSiderealTime(JD) + LonDeg);
+end;
+
+// Free function rather than a record method: Free Pascal does not allow
+// record method declarations in a unit's interface section. Mirrors
+// DateTime::JulianDay() in astro_math.h.
+function JulianDayOf(const When: TUtcDateTime): Double;
+begin
+  JulianDayOf := JulianDate(When.Year, When.Month, When.Day, When.Hour, When.Minute, When.Second);
+end;
+
+procedure HorizontalCoordsAtJulian(JD: Double; const Site: TObserver;
+  RAHours, DecDeg: Double; out AzDeg, AltDeg: Double);
+var
+  LstDeg, RaDeg, HaDeg, LatRad, DecRad, HaRad, SinAlt, AzSin, AzCos: Double;
+begin
+  LstDeg := LocalSiderealTime(JD, Site.LonDeg);
+  RaDeg := RAHours * 15.0;
+  HaDeg := NormalizeDeg(LstDeg - RaDeg);
+  if HaDeg > 180.0 then HaDeg := HaDeg - 360.0;
+  LatRad := DegToRad(Site.LatDeg);
+  DecRad := DegToRad(DecDeg);
+  HaRad := DegToRad(HaDeg);
+  SinAlt := Sin(LatRad) * Sin(DecRad) + Cos(LatRad) * Cos(DecRad) * Cos(HaRad);
+  AltDeg := RadToDeg(ArcSin(EnsureRange(SinAlt, -1.0, 1.0)));
+  AzSin := -Cos(DecRad) * Sin(HaRad);
+  AzCos := Sin(DecRad) * Cos(LatRad) - Cos(DecRad) * Sin(LatRad) * Cos(HaRad);
+  AzDeg := NormalizeDeg(RadToDeg(ArcTan2(AzSin, AzCos)));
+end;
+
+procedure HorizontalCoordsAt(const When: TUtcDateTime; const Site: TObserver;
+  RAHours, DecDeg: Double; out AzDeg, AltDeg: Double);
+begin
+  HorizontalCoordsAtJulian(JulianDayOf(When), Site, RAHours, DecDeg, AzDeg, AltDeg);
+end;
+
+// Record-constructor helpers: Free Pascal 3.2 does not accept
+// TObserver(Lat, Lon) / TUtcDateTime(y, m, ...) inline constructor syntax.
+function ObserverAt(LatDeg, LonDeg: Double): TObserver;
+begin
+  Result.LatDeg := LatDeg;
+  Result.LonDeg := LonDeg;
+end;
+
+function UtcDateTimeAt(Y, Mo, D, H, Mi, S: Double): TUtcDateTime;
+begin
+  Result.Year := Y; Result.Month := Mo; Result.Day := D;
+  Result.Hour := H; Result.Minute := Mi; Result.Second := S;
 end;
 
 procedure HorizontalCoords(Y, Mo, D, H, Mi, S, LatDeg, LonDeg, RAHours, DecDeg: Double;
@@ -777,7 +845,8 @@ begin
   while T <= 24.0 do
   begin
     SunRAandDec(JD0 + T / 24.0, RA, Dec);
-    HorizontalCoords(Y, Mo, D, T, 0, 0, LatDeg, LonDeg, RA, Dec, Az, Alt);
+    HorizontalCoordsAtJulian(JulianDate(Y, Mo, D, 0, 0, 0) + T / 24.0,
+      ObserverAt(LatDeg, LonDeg), RA, Dec, Az, Alt);
     if not First then
     begin
       if (PrevAlt < ThresholdDeg) and (Alt >= ThresholdDeg) and (RiseH < 0) then RiseH := T;

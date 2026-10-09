@@ -455,6 +455,8 @@ void DisplayResults(double observerLat, double observerLon, bool visibleOnly, st
                     double magneticDeclination, bool magneticMode)
 {
     double jd = JulianDate(year, month, day, hour, minute, second, millisecond);
+    const DateTime when{year, month, day, hour, minute, second, millisecond};
+    const Observer site{observerLat, observerLon};
 
     std::cout << std::fixed << std::setprecision(4) << std::setfill(' ');
     std::cout << "Observer location: Lat = " << observerLat << "\xC2\xB0, Lon = " << observerLon << "\xC2\xB0" << std::endl;
@@ -509,10 +511,7 @@ void DisplayResults(double observerLat, double observerLon, bool visibleOnly, st
         double objRa = obj.rightAscensionHours, objDec = obj.declinationDegrees;
         PrecessRaDecJ2000ToDate(JulianDate(year, month, day, hour, minute, second, millisecond), objRa, objDec);
 
-        auto [az, alt] = CalculateHorizontalCoordinates(
-            year, month, day, hour, minute, second, millisecond,
-            observerLat, observerLon,
-            objRa, objDec);
+        auto [az, alt] = CalculateHorizontalCoordinates(when, site, objRa, objDec);
 
         if (visibleOnly && alt < 0.0) continue;
 
@@ -539,10 +538,8 @@ void DisplayResults(double observerLat, double observerLon, bool visibleOnly, st
         if (!targetName.empty() && !CaseInsensitiveEq(planet.name, targetName)) continue;
         found = true;
 
-        auto [az, alt] = CalculateHorizontalCoordinates(
-            year, month, day, hour, minute, second, millisecond,
-            observerLat, observerLon,
-            planet.rightAscensionHours, planet.declinationDegrees);
+        auto [az, alt] = CalculateHorizontalCoordinates(when, site,
+                                                        planet.rightAscensionHours, planet.declinationDegrees);
 
         if (visibleOnly && alt < 0.0) continue;
 
@@ -590,6 +587,8 @@ void DisplayArduinoResults(double observerLat, double observerLon, std::string t
 
     auto findObject = [&](const std::string& name) -> std::pair<double, double>
     {
+        const DateTime when{year, month, day, hour, minute, second, millisecond};
+        const Observer site{observerLat, observerLon};
         for (const auto& obj : objects)
         {
             if (CaseInsensitiveEq(obj.name, name))
@@ -597,20 +596,15 @@ void DisplayArduinoResults(double observerLat, double observerLon, std::string t
                 // Catalog rows are J2000: precess before the horizontal transform.
                 double objRa = obj.rightAscensionHours, objDec = obj.declinationDegrees;
                 PrecessRaDecJ2000ToDate(JulianDate(year, month, day, hour, minute, second, millisecond), objRa, objDec);
-                return CalculateHorizontalCoordinates(
-                    year, month, day, hour, minute, second, millisecond,
-                    observerLat, observerLon,
-                    objRa, objDec);
+                return CalculateHorizontalCoordinates(when, site, objRa, objDec);
             }
         }
         for (const auto& planet : planets)
         {
             if (CaseInsensitiveEq(planet.name, name))
             {
-                return CalculateHorizontalCoordinates(
-                    year, month, day, hour, minute, second, millisecond,
-                    observerLat, observerLon,
-                    planet.rightAscensionHours, planet.declinationDegrees);
+                return CalculateHorizontalCoordinates(when, site,
+                                                    planet.rightAscensionHours, planet.declinationDegrees);
             }
         }
         return {0.0, 0.0};

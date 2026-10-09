@@ -70,7 +70,9 @@ static int RunEpoch(const HCheck* checks, int n,
                     const char* label, bool negativeControl)
 {
     int failures = 0;
-    double jd = JulianDate(y, m, d, h, 0.0, 0.0, 0.0);
+    const DateTime when{y, m, d, h, 0.0, 0.0, 0.0};
+    const Observer site{45.0, 10.0};
+    double jd = when.JulianDay();
     for (int i = 0; i < n; ++i)
     {
         const HCheck& c = checks[i];
@@ -78,7 +80,7 @@ static int RunEpoch(const HCheck* checks, int n,
         double dec = c.decSign * (c.decD + c.decM / 60.0 + c.decS / 3600.0);
         if (!negativeControl)
             PrecessRaDecJ2000ToDate(jd, ra, dec); // J2000 -> mean of date
-        auto [az, alt] = CalculateHorizontalCoordinates(y, m, d, h, 0.0, 0.0, 0.0, 45.0, 10.0, ra, dec);
+        auto [az, alt] = CalculateHorizontalCoordinates(when, site, ra, dec);
 
         double sep = SeparationDeg(az, alt, c.az, c.alt);
         bool ok = sep <= kTolDeg;

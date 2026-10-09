@@ -63,9 +63,13 @@ var
   RA, Dec, Az, Alt, S: Double;
   Ok: Boolean;
   JD: Double;
+  When: TUtcDateTime;
+  Site: TObserver;
 begin
   RunEpoch := 0;
-  JD := JulianDate(Y, Mo, D, H, 0, 0);
+  When := UtcDateTimeAt(Y, Mo, D, H, 0, 0);
+  Site := ObserverAt(45.0, 10.0);
+  JD := JulianDayOf(When);
   for I := 0 to High(Checks) do
   begin
     RA := Checks[I].RAH + Checks[I].RAM / 60.0 + Checks[I].RAS / 3600.0;
@@ -73,7 +77,7 @@ begin
            (Checks[I].DecD + Checks[I].DecM / 60.0 + Checks[I].DecS / 3600.0);
     if not NoPrec then
       PrecessRaDecJ2000ToDate(JD, RA, Dec);
-    HorizontalCoords(Y, Mo, D, H, 0, 0, 45.0, 10.0, RA, Dec, Az, Alt);
+    HorizontalCoordsAt(When, Site, RA, Dec, Az, Alt);
     S := SepDeg(Az, Alt, Checks[I].Az, Checks[I].Alt);
     Ok := S <= kTolDeg;
     if not Ok then Inc(RunEpoch);

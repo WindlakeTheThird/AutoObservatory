@@ -85,19 +85,17 @@ inline double LocalSiderealTime(double jst, double lonDeg)
     return NormalizeDegrees(GreenwichMeanSiderealTime(jst) + lonDeg);
 }
 
-inline std::pair<double, double> CalculateHorizontalCoordinates(
-    double year, double month, double day, double hour, double minute, double second, double millisecond,
-    double observerLatDeg, double observerLonDeg,
-    double raHours, double decDeg)
+// Core: equatorial -> horizontal at a Julian date. Everything else funnels here.
+inline std::pair<double, double> CalculateAzimuthFromJulian(
+    double jd, double latDeg, double lonDeg, double raHours, double decDeg)
 {
-    double jd = JulianDate(year, month, day, hour, minute, second, millisecond);
-    double lstDeg = LocalSiderealTime(jd, observerLonDeg);
+    double lstDeg = LocalSiderealTime(jd, lonDeg);
 
     double raDeg = raHours * 15.0;
     double haDeg = NormalizeDegrees(lstDeg - raDeg);
     if (haDeg > 180.0) haDeg -= 360.0;
 
-    double latRad = DegreesToRadians(observerLatDeg);
+    double latRad = DegreesToRadians(latDeg);
     double decRad = DegreesToRadians(decDeg);
     double haRad = DegreesToRadians(haDeg);
 
@@ -110,10 +108,52 @@ inline std::pair<double, double> CalculateHorizontalCoordinates(
                    std::cos(decRad) * std::sin(latRad) * std::cos(haRad);
     double azRad = std::atan2(sinAz, cosAz);
 
-    double azDeg = NormalizeDegrees(RadiansToDegrees(azRad));
-    double altDeg = RadiansToDegrees(altRad);
+    return {NormalizeDegrees(RadiansToDegrees(azRad)), RadiansToDegrees(altRad)};
+}
 
-    return {azDeg, altDeg};
+// A calendar instant, as named fields.
+//
+// This exists to stop date components crossing function boundaries as a run of
+// same-typed doubles. The previous signature took year, month, day, hour,
+// minute, second and millisecond positionally -- seven adjacent doubles where
+// transposing minute and millisecond compiles clean and is worth 600x the
+// error, and where callers had to write trailing `0.0`s that were easy to
+// drop or reorder.
+//
+// Note this is deliberately NOT a validated/parsed type: --date/--time parsing
+// and range checking stay in cli_parse.h (ParseDateArg / ParseTimeArg), so an
+// impossible date is still rejected at the argument boundary rather than
+// scattered across call sites.
+struct DateTime
+{
+    double year = 2000.0, month = 1.0, day = 1.0;
+    double hour = 0.0, minute = 0.0, second = 0.0, millisecond = 0.0;
+
+    double JulianDay() const
+    {
+        return JulianDate(year, month, day, hour, minute, second, millisecond);
+    }
+};
+
+// Observer location, so latitude and longitude travel together and cannot swap.
+struct Observer
+{
+    double latDeg = 0.0;
+    double lonDeg = 0.0;
+};
+
+inline std::pair<double, double> CalculateHorizontalCoordinates(
+    const DateTime& when, const Observer& site, double raHours, double decDeg)
+{
+    return CalculateAzimuthFromJulian(when.JulianDay(), site.latDeg, site.lonDeg, raHours, decDeg);
+}
+
+// For callers that already hold a Julian date -- the rise/set and twilight
+// scans sweep fractional hours and never need a calendar round-trip.
+inline std::pair<double, double> HorizontalCoordinatesAtJulian(
+    double jd, const Observer& site, double raHours, double decDeg)
+{
+    return CalculateAzimuthFromJulian(jd, site.latDeg, site.lonDeg, raHours, decDeg);
 }
 
 #endif

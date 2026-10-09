@@ -52,6 +52,8 @@ static bool g_follow = false;
 // (or pass the name straight to --object). Only the name is exchanged, so the
 // planetarium stays the authority on what is in the sky.
 static const char* TARGET_FILE = "selected_target.txt";
+static Observer g_site;
+static DateTime   g_when;   // rebuilt each frame / per scan step
 static std::vector<SkyObject> g_plotted; // last frame's selectable objects
 static std::string g_cursorName;         // highlighted while cycling
 static std::string g_targetName;         // locked in for the autoobservatory
@@ -125,9 +127,8 @@ static void PrintTrackingPanel(const std::string& targetName, double lat, double
             {
                 // Catalog rows are J2000: precess before the horizontal transform.
                 double sRa = s.rightAscensionHours, sDec = s.declinationDegrees;
-                PrecessRaDecJ2000ToDate(JulianDate(year, month, day, hour, minute, second, 0.0), sRa, sDec);
-                auto [az, alt] = CalculateHorizontalCoordinates(year, month, day, hour, minute, second, 0.0,
-                                                                lat, lon, sRa, sDec);
+                PrecessRaDecJ2000ToDate(g_when.JulianDay(), sRa, sDec);
+                auto [az, alt] = CalculateHorizontalCoordinates(g_when, g_site, sRa, sDec);
                 tAz = az; tAlt = alt; haveTarget = true; break;
             }
         if (!haveTarget)
@@ -136,8 +137,8 @@ static void PrintTrackingPanel(const std::string& targetName, double lat, double
             for (auto& p : GetPlanetaryObjects(jd))
                 if (p.name == targetName)
                 {
-                    auto [az, alt] = CalculateHorizontalCoordinates(year, month, day, hour, minute, second, 0.0,
-                                                                    lat, lon, p.rightAscensionHours, p.declinationDegrees);
+                    auto [az, alt] = CalculateHorizontalCoordinates(g_when, g_site,
+                                                                    p.rightAscensionHours, p.declinationDegrees);
                     tAz = az; tAlt = alt; haveTarget = true; break;
                 }
         }
@@ -352,10 +353,12 @@ static void FindMoonRiseSet(double year, double month, double day,
     rise = -1.0; set = -1.0;
     double prevAlt = 0.0;
     bool first = true;
+    Observer site{lat, lon};
+    const double dayJD0 = JulianDate(year, month, day, 0.0, 0.0, 0.0, 0.0);
     for (double t = 5.0 / 60.0; t <= 24.0; t += 5.0 / 60.0)
     {
         auto [ra, dec, mag] = ComputeMoonGeocentric(JulianDate(year, month, day, 0.0, 0.0, 0.0, 0.0) + t / 24.0);
-        auto [az, alt] = CalculateHorizontalCoordinates(year, month, day, t, 0.0, 0.0, 0.0, lat, lon, ra, dec);
+        auto [az, alt] = HorizontalCoordinatesAtJulian(dayJD0 + t / 24.0, site, ra, dec);
         (void)az;
         if (!first)
         {
@@ -378,11 +381,13 @@ static void FindSunEvents(double year, double month, double day,
     rise = -1.0; set = -1.0;
     double prevAlt = 0.0;
     bool first = true;
+    Observer site{lat, lon};
+    const double dayJD0 = JulianDate(year, month, day, 0.0, 0.0, 0.0, 0.0);
     for (double t = 5.0 / 60.0; t <= 24.0; t += 5.0 / 60.0)
     {
         double ra, dec;
-        SunRAandDec(JulianDate(year, month, day, 0.0, 0.0, 0.0, 0.0) + t / 24.0, ra, dec);
-        auto [az, alt] = CalculateHorizontalCoordinates(year, month, day, t, 0.0, 0.0, 0.0, lat, lon, ra, dec);
+        SunRAandDec(dayJD0 + t / 24.0, ra, dec);
+        auto [az, alt] = HorizontalCoordinatesAtJulian(dayJD0 + t / 24.0, site, ra, dec);
         (void)az;
         if (!first)
         {
@@ -403,6 +408,13 @@ static void RenderFrame(double lat, double lon, double magLimit,
     // the locked target's az/alt to recentre the view, and 'sky' is the one
     // place every star and planet's position is known regardless of mag limit
     // or where the current field happens to point.
+    // Publish the frame's instant and site once; every az/alt conversion in
+    // this frame (and the tracking panel it calls) reads these, so the date
+    // fields cannot drift between call sites.
+    g_site = Observer{lat, lon};
+    g_when = DateTime{year, month, day, hour, minute, second, 0.0};
+    const double frameJD = g_when.JulianDay();
+
     std::vector<SkyObject> sky;
     std::vector<CelestialObject> stars;
     try { stars = CelestialObjectReader::ReadFromCSV("celestial_objects.csv"); }
@@ -417,14 +429,12 @@ static void RenderFrame(double lat, double lon, double magLimit,
     };
     char nextSym = 'A';
     int nextCluster = 1;
-    double starJD = JulianDate(year, month, day, hour, minute, second, 0.0);
     for (auto& s : stars)
     {
         // Catalog rows are J2000: precess before the horizontal transform.
         double sRa = s.rightAscensionHours, sDec = s.declinationDegrees;
-        PrecessRaDecJ2000ToDate(starJD, sRa, sDec);
-        auto [az, alt] = CalculateHorizontalCoordinates(year, month, day, hour, minute, second, 0.0,
-                                                        lat, lon, sRa, sDec);
+        PrecessRaDecJ2000ToDate(frameJD, sRa, sDec);
+        auto [az, alt] = CalculateHorizontalCoordinates(g_when, g_site, sRa, sDec);
         char sym = '.';
         if (s.magnitude <= 1.5 && alt > 0)
         {
@@ -449,8 +459,8 @@ static void RenderFrame(double lat, double lon, double magLimit,
     for (auto& p : planets)
     {
         if (p.name == "Moon") { moonRA = p.rightAscensionHours; moonDec = p.declinationDegrees; }
-        auto [az, alt] = CalculateHorizontalCoordinates(year, month, day, hour, minute, second, 0.0,
-                                                        lat, lon, p.rightAscensionHours, p.declinationDegrees);
+        auto [az, alt] = CalculateHorizontalCoordinates(g_when, g_site,
+                                                        p.rightAscensionHours, p.declinationDegrees);
         char sym = p.name == "Moon" ? 'O' : (p.name[0] | 0x20); // Moon=O, else lowercase initial
         sky.push_back({p.name, az, alt, p.magnitude, true, sym});
     }
@@ -483,8 +493,7 @@ static void RenderFrame(double lat, double lon, double magLimit,
     // Sun: computed once, drawn above horizon, reported in the header
     double sunRA, sunDec;
     SunRAandDec(jd, sunRA, sunDec);
-    auto [sunAz, sunAlt] = CalculateHorizontalCoordinates(year, month, day, hour, minute, second, 0.0,
-                                                          lat, lon, sunRA, sunDec);
+    auto [sunAz, sunAlt] = CalculateHorizontalCoordinates(g_when, g_site, sunRA, sunDec);
     bool sunUp = sunAlt > 0;
     if (sunUp) Plot(sunAz, sunAlt, '@');
 
