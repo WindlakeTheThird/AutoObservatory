@@ -88,25 +88,43 @@ jobs:
     # because it needs the Arduino toolchain; kept as its own job so a toolchain
     # hiccup cannot mask the host-side regression net.
     #
-    # Uses arduino-cli from PATH (via the setup action) rather than the
-    # project-local ./bin/arduino-cli, which is gitignored.
+    # No third-party action: `arduino/setup-arduino` does not exist (GitHub
+    # reports 404), and arduino/actions is a Taskfile repo, not a setup action.
+    # Instead install arduino-cli from a PINNED release tarball with a verified
+    # sha256. v1.5.1 is deliberately the same version the project vendors at
+    # ./bin/arduino-cli, so CI and local build with identical tooling.
+    env:
+      ARDUINO_CLI_VERSION: 1.5.1
+      ARDUINO_CLI_SHA256: 28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: arduino/setup-arduino@v2
+      - name: Install arduino-cli (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          url="https://github.com/arduino/arduino-cli/releases/download/v${ARDUINO_CLI_VERSION}/arduino-cli_${ARDUINO_CLI_VERSION}_Linux_64bit.tar.gz"
+          curl -fsSL -o /tmp/arduino-cli.tgz "$url"
+          echo "${ARDUINO_CLI_SHA256}  /tmp/arduino-cli.tgz" | sha256sum --check --strict
+          tar -xzf /tmp/arduino-cli.tgz -C /usr/local/bin arduino-cli
+          chmod +x /usr/local/bin/arduino-cli
+          arduino-cli version
 
       # arduino:renesas_uno (UNO R4) ships in Arduino's OWN package index -- no
-      # third-party index is needed. An earlier version of this workflow pointed
-      # --additional-urls at a URL that 404s.
+      # third-party index is needed. (An earlier version of this workflow passed
+      # --additional-urls at a URL that 404s.)
       - name: Install the UNO R4 core
         run: |
+          set -euo pipefail
           arduino-cli core update-index
           arduino-cli core install arduino:renesas_uno
-          arduino-cli board listall | grep -i "uno r4" || {
-            echo "::error::renesas_uno core did not register any board"; exit 1; }
+          # Fail loudly if the FQBN we compile against is not actually registered.
+          arduino-cli board listall | grep -q "arduino:renesas_uno:minima" \
+            || { echo "::error::arduino:renesas_uno:minima not in board list"; exit 1; }
 
       - name: Compile mount_tracker strictly
         run: |
+          set -euo pipefail
           arduino-cli compile --fqbn arduino:renesas_uno:minima \
             --build-property "compiler.cpp.extra_flags=-Wall -Wextra -Werror -Wno-switch" \
             arduino/mount_tracker
