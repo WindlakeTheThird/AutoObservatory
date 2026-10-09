@@ -17,11 +17,11 @@ calibrate: calibrate.cpp wmm_mag.c mount_control.h wmm_mag.h cli_parse.h
 
 autoobservatory: main.cpp wmm_mag.c astro_math.h mount_control.h terminal_io.h \
                  celestial_objects.h celestial_object_reader.h planetary_objects.h \
-                 object_name.h cli_parse.h
+                 object_name.h cli_parse.h file_io.h
 	$(CC) $(CFLAGS) -o $@ main.cpp $(LIBS)
 
 planetarium: planetarium.cpp wmm_mag.c astro_math.h celestial_objects.h \
-             celestial_object_reader.h planetary_objects.h object_name.h cli_parse.h sky_view.h
+             celestial_object_reader.h planetary_objects.h object_name.h cli_parse.h sky_view.h file_io.h
 	$(CC) $(CFLAGS) -o $@ planetarium.cpp $(LIBS)
 
 # GUI live planetarium (Free Pascal / Lazarus LCL). Build with 'make gui'.
@@ -150,4 +150,5 @@ check-gui:
 clean:
 	rm -f autoobservatory planetarium calibrate tools/ephcheck tools/objectname_check tools/viewcheck tools/horzcheck tools/ephdump
 	rm -f selected_target.txt mount_status.txt
+	rm -f selected_target.txt.tmp.* mount_status.txt.tmp.*
 	rm -f pas/*.ppu pas/*.o pas/*.or pas/PlanetariumGUI pas/PasPlanetariumGUI pas/viewcheck_pas pas/horzcheck_pas

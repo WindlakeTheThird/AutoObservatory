@@ -19,6 +19,7 @@
 #include "astro_math.h"
 #include "mount_control.h"
 #include "terminal_io.h"
+#include "file_io.h"
 #include "object_name.h"
 #include "cli_parse.h"
 
@@ -440,11 +441,13 @@ static const char* MOUNT_STATUS_FILE = "mount_status.txt";
 
 static void WriteMountStatus(const std::string& azAltLine, const std::string& target)
 {
-    std::ofstream f(MOUNT_STATUS_FILE, std::ios::trunc);
-    if (!f.is_open()) return;
-    f << azAltLine;
-    if (!target.empty()) f << " TARGET:" << target;
-    f << " T:" << (long)std::time(nullptr) << "\n";
+    // Atomic: rewritten up to 10 Hz while planetarium/GUI sample it, so a
+    // truncating write would let them read a half-written line and report a
+    // healthy mount as "no position recorded". See file_io.h.
+    std::string line = azAltLine;
+    if (!target.empty()) line += " TARGET:" + target;
+    line += " T:" + std::to_string((long)std::time(nullptr)) + "\n";
+    WriteFileAtomic(MOUNT_STATUS_FILE, line);
 }
 
 void DisplayResults(double observerLat, double observerLon, bool visibleOnly, std::string targetName,

@@ -26,6 +26,7 @@
 #include "object_name.h"
 #include "cli_parse.h"
 #include "sky_view.h"
+#include "file_io.h"
 
 // 61x31 grid: wide aspect (chars are ~2x tall as wide)
 static const int W = 61, H = 31;
@@ -65,8 +66,8 @@ static std::string FollowState()
 
 static void WriteTargetFile(const std::string& name)
 {
-    std::ofstream f(TARGET_FILE);
-    if (f.is_open()) f << name << "\n";
+    // Atomic: autoobservatory may read this at any moment. See file_io.h.
+    WriteFileAtomic(TARGET_FILE, name + "\n");
 }
 
 // Telemetry published by ./autoobservatory when it sends a position to the

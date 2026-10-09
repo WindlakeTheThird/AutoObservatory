@@ -700,16 +700,22 @@ end;
 
 // Hand the selection to the autoobservatory: it reads the same
 // selected_target.txt as the terminal planetarium (--from-planetarium).
+// Written via temp+rename so a concurrent reader never sees a partial file
+// (mirrors WriteFileAtomic in file_io.h).
 procedure TSkyForm.SaveTarget(const AName: string);
 var
   Sl: TStringList;
+  Tmp: string;
 begin
   Sl := TStringList.Create;
   try
     if AName <> '' then Sl.Add(AName);
+    Tmp := 'selected_target.txt.tmp.' + IntToStr(GetProcessID);
     try
-      Sl.SaveToFile('selected_target.txt');
+      Sl.SaveToFile(Tmp);
+      RenameFile(Tmp, 'selected_target.txt');
     except
+      DeleteFile(Tmp);
       // read-only working dir: the GUI still works, just no hand-off
     end;
   finally
