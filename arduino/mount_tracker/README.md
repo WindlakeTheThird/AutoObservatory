@@ -1,9 +1,12 @@
 # mount_tracker.ino — LSM303AGR AZ/ALT mount follower
 
-Arduino sketch that receives `AZ:<deg> ALT:<deg>` lines from the Autoobservatory
-(`./autoobservatory <lat> <lon> --object Vega -a --baud 115200 [--serial /dev/ttyUSB0]`)
-and drives two stepper motors to that position using an Adafruit LSM303AGR
-(magnetometer + accelerometer) for absolute orientation feedback.
+Arduino sketch that receives `AZ:<deg> ALT:<deg> SEQ:<n> CRC:<hhhh>` lines from
+the Autoobservatory
+(`./autoobservatory <lat> <lon> --object Vega -a --mount serial:///dev/ttyUSB0`)
+and drives two **brushed DC motors** (L293D H-bridges, PWM) to that position,
+using an Adafruit LSM303AGR (magnetometer + accelerometer) for absolute
+orientation feedback. There are no stepper motors and no step/dir pins — the
+sensor *is* the encoder, since DC motors give no per-step feedback.
 
 ## Library
 
@@ -67,8 +70,17 @@ at a known pointing, and leave `magDeclination` at 0 while running autoobservato
 
 ## Protocol
 
-Host line: `AZ:123.4567 ALT:-12.5000\n` (slew-rate-limited already by the host;
-the host `--deadzone` flag further cuts traffic). The sketch parses, blends the
-sensor reading (80%) with open-loop PWM timing (20%) to smooth magnetometer noise,
-and drives each axis proportionally toward the target, taking the short way round
-in azimuth. 1 Hz `tgt/cur/err` telemetry on the same port for debugging.
+Host line: `AZ:123.4567 ALT:-12.5000 SEQ:42 CRC:8B30\n` (slew-rate-limited already
+by the host; the host `--deadzone` flag further cuts traffic). `SEQ` counts from 1
+per command and `CRC` is CRC-16/CCITT-FALSE over every byte before ` CRC:`, so a
+line corrupted in transit is refused instead of being read as a plausible wrong
+target. A line with no integrity fields is refused too. The sketch parses, blends
+the sensor reading (80%) with open-loop PWM timing (20%) to smooth magnetometer
+noise, and drives each axis proportionally toward the target, taking the short
+way round in azimuth. 1 Hz `ERR:...tgt/cur/err rej=<n> gap=<n>` telemetry on the
+same port for debugging.
+
+The CRC is recomputed independently in firmware (`wireCrc16`) and both
+implementations are pinned against a third one in `tools/wirecheck.cpp`, so
+host/sketch disagreement fails the build rather than silently rejecting every
+command. See ObsMCP/`Wireless Mount Link.md`.

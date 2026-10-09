@@ -45,7 +45,16 @@ dots. In `--live` mode it redraws from the real clock and takes keystrokes:
 `w/a/s/d` pans, `0` returns to the full sky, `q` quits.
 
 **`autoobservatory`** — resolves an object by name, prints a table, or tracks it
-with slew-rate-limited AZ/ALT output to the mount over serial.
+with slew-rate-limited AZ/ALT output to the mount. `--mount SPEC` selects the
+link: `serial://DEV` (or a bare device path) for USB, `tcp://host:port` for a
+wireless bridge, `stdout` to print only. `--serial DEV` remains an alias for
+`--mount serial://DEV`.
+
+Every target line carries `SEQ:` and `CRC:` fields, and the sketch verifies both
+before a line is allowed to move a motor. That matters more on a radio than on a
+cable: a truncated command can otherwise parse into a plausible but *wrong*
+target, silently. `tools/wirecheck.cpp` pins the host and firmware
+implementations against each other so the two cannot drift apart unnoticed.
 
 **`calibrate`** — runs the mount's homing routine.
 

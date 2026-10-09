@@ -8,6 +8,8 @@
 #include <thread>
 #include <cmath>
 #include "mount_control.h"
+#include "transport.h"
+#include "transport_posix.h"
 #include "astro_math.h"
 #include "wmm_mag.h"
 #include "cli_parse.h"
@@ -43,28 +45,6 @@ struct MagDecl {
 //   4. Verifies: sends AZ:0 (true north) and checks the reported error < 2 deg.
 //
 // Usage: calibrate <lat> <lon> [serial-device] [baud]
-
-static bool ReadLine(int fd, std::string& out, int timeoutMs)
-{
-    out.clear();
-    auto start = std::chrono::steady_clock::now();
-    char c;
-    while (std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now() - start).count() < timeoutMs)
-    {
-        ssize_t n = read(fd, &c, 1);
-        if (n == 1)
-        {
-            if (c == '\n' || c == '\r')
-            {
-                if (!out.empty()) return true;
-            }
-            else out += c;
-        }
-        else std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    return false;
-}
 
 static int runMain(int argc, char* argv[])
 {
@@ -158,19 +138,21 @@ static int runMain(int argc, char* argv[])
         return 0;
     }
 
-    int fd = SerialOpen(dev, ParseBaud(baud));
-    if (fd < 0) { std::fprintf(stderr, "Cannot open %s\n", dev.c_str()); return 1; }
+    long seq = 0; // wire SEQ: counter, monotonic across the whole session
+    std::string terr;
+    std::unique_ptr<Transport> mount = MakeTransport(dev, baud, &terr);
+    if (!mount) { std::fprintf(stderr, "%s\n", terr.c_str()); return 1; }
 
     // 1. Command magnetic north. The mount slews until its tilt-compensated
     //    heading reads 0 — that defines the magnetic frame, wherever it points.
     std::printf("Step 1: slewing to magnetic north (AZ:0 ALT:30)...\n");
-    SerialWriteLine(fd, "AZ:0 ALT:30");
+    mount->write(FormatTargetLine(0.0, 30.0, ++seq));
     std::this_thread::sleep_for(std::chrono::seconds(2)); // let slew start
 
     // 1b. Put the sketch into calibration mode (zeroes offsets, slews to
     //     magnetic north, computes + stores offsets, replies CAL:...).
     std::printf("Step 1b: starting sketch self-calibration...\n");
-    SerialWriteLine(fd, "CAL");
+    mount->write("CAL");
 
     // 2. Wait for calibration report from the sketch.
     std::string line;
@@ -179,13 +161,13 @@ static int runMain(int argc, char* argv[])
     std::printf("Step 2: waiting for mount to settle and report offsets...\n");
     for (int i = 0; i < 120 && !gotCal; ++i) // up to ~2 min
     {
-        if (ReadLine(fd, line, 1000) && std::sscanf(line.c_str(), "CAL:%*f %*f azoff=%lf altoff=%lf", &azOff, &altOff) == 2)
+        if (mount->read(line, 1000) && std::sscanf(line.c_str(), "CAL:%*f %*f azoff=%lf altoff=%lf", &azOff, &altOff) == 2)
             gotCal = true;
     }
     if (!gotCal)
     {
         std::fprintf(stderr, "Timed out waiting for CAL report. Is the sketch in calibration mode?\n");
-        SerialClose(fd);
+        mount->close();
         return 1;
     }
     std::printf("  mount reports az offset %+.2f, alt offset %+.2f — stored on the Arduino (EEPROM).\n", azOff, altOff);
@@ -195,12 +177,12 @@ static int runMain(int argc, char* argv[])
     //    commands are interpreted as TRUE azimuth.
     char buf[48];
     std::snprintf(buf, sizeof(buf), "DECL:%.4f", decl);
-    SerialWriteLine(fd, buf);
+    mount->write(buf);
     std::printf("Step 3: sent DECL:%.2f (WMM magnetic declination at %.2f, %.2f)\n", decl, lat, lon);
 
     // 4. Verify: command true north and read back the steady-state error.
     std::printf("Step 4: verifying — slewing to true north (AZ:0)...\n");
-    SerialWriteLine(fd, "AZ:0 ALT:30");
+    mount->write(FormatTargetLine(0.0, 30.0, ++seq));
     // The sketch now has magDeclination applied, so AZ:0 = TRUE north. Its
     // ERR: lines report steady-state error; wait for it to settle.
     double errAz = 999, errAlt = 999;
@@ -210,28 +192,28 @@ static int runMain(int argc, char* argv[])
         // the motors after CMD_TIMEOUT_MS without a fresh command, so a host
         // that commands once and then only listens would stall the mount
         // mid-travel. Keeping the command alive is what the watchdog expects.
-        SerialWriteLine(fd, "AZ:0 ALT:30");
-        if (ReadLine(fd, line, 1000))
+        mount->write(FormatTargetLine(0.0, 30.0, ++seq));
+        if (mount->read(line, 1000))
         {
             // A STALE line means the sketch gave up driving; never treat that
             // as a successful calibration, whatever the error fields say.
             if (line.find("STALE") != std::string::npos)
             {
                 std::fprintf(stderr, "Mount reports STALE (command link lost) - not calibrated.\n");
-                SerialClose(fd);
+                mount->close();
                 return 1;
             }
             if (std::sscanf(line.c_str(), "ERR:%lf %lf", &errAz, &errAlt) == 2 &&
                 std::fabs(errAz) < 2.0 && std::fabs(errAlt) < 2.0)
             {
                 std::printf("  OK: az err %.2f, alt err %.2f — mount is calibrated to TRUE north.\n", errAz, errAlt);
-                SerialClose(fd);
+                mount->close();
                 return 0;
             }
         }
     }
     std::fprintf(stderr, "Verification did not converge (last err az %.2f alt %.2f).\n", errAz, errAlt);
-    SerialClose(fd);
+    mount->close();
     return 1;
 }
 

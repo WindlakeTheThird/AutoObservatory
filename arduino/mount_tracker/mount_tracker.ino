@@ -58,6 +58,12 @@ bool  stale = false;               // command link lost; motors held, telemetry 
 // Rejected-command counter, reported in ERR: so a host-side protocol bug shows
 // up as a visible count instead of a silently ignored line.
 unsigned long rejectedCmds = 0;
+// Sequence-gap counter (host-injected SEQ: field). A gap means a line was lost
+// in transit; counted apart from rejectedCmds because the cause differs
+// (radio loss vs a bad command).
+unsigned long sequenceGaps = 0;
+long lastSeq = 0;
+bool haveSeq = false;
 
 float azPos = 0.0, altPos = 0.0;          // estimated current axis angles (deg, TRUE frame)
 float azOffset = 0.0, altOffset = 0.0;    // sensor->magnetic-frame offsets (from calibration)
@@ -149,11 +155,79 @@ bool acceptTarget(float az, float alt)
     return true;
 }
 
+// --- wire integrity ---------------------------------------------------------
+//
+// Over a USB cable a dropped line is harmless (the watchdog notices) and a
+// truncated one is very unlikely. Over Bluetooth/Wi-Fi both happen, and a
+// truncated "AZ:240.8006 ALT:14.9531" can sscanf into a plausible but WRONG
+// target -- the worst failure a mount can have, because it is silent.
+//
+// So the host appends " SEQ:<n> CRC:<hhhh>" to every target line and we verify
+// both. CRC is CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) over every byte of
+// the line before the " CRC:" token, uppercase hex. Mirrors AppendWireCheck in
+// transport.h; tools/wirecheck.cpp pins the two against a shared vector.
+uint16_t wireCrc16(const char *data, size_t len)
+{
+    uint16_t crc = 0xFFFF;
+    for (size_t i = 0; i < len; ++i)
+    {
+        crc ^= (uint16_t)((unsigned char)data[i]) << 8;
+        for (int b = 0; b < 8; ++b)
+            crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+    }
+    return crc;
+}
+
+// Check the trailing " SEQ:<n> CRC:<hhhh>". True only when the CRC matches; on
+// success *seq receives the sequence number. A line with no integrity fields
+// counts as a failure: the host always sends them, so their absence means a
+// truncated or hand-typed line and we will not move a mount on it.
+bool checkWireIntegrity(const char *line, long *seq)
+{
+    const char *crcTok = strstr(line, " CRC:");
+    if (crcTok == NULL) return false;
+
+    unsigned long got = 0;
+    if (sscanf(crcTok, " CRC:%lx", &got) != 1) return false;
+    if (got > 0xFFFF) return false;
+
+    uint16_t want = wireCrc16(line, (size_t)(crcTok - line));
+    if (want != (uint16_t)got) return false;
+
+    const char *seqTok = strstr(line, " SEQ:");
+    if (seqTok == NULL || seqTok > crcTok) return false;
+    if (sscanf(seqTok, " SEQ:%ld", seq) != 1) return false;
+    return true;
+}
+
 void parseLine()
 {
     float az, alt, decl;
+    long seq = 0;
     if (sscanf(lineBuf, "AZ:%f ALT:%f", &az, &alt) == 2)
     {
+        // Integrity first: a line that fails its CRC must never move a motor,
+        // however well-formed its numbers look.
+        if (!checkWireIntegrity(lineBuf, &seq))
+        {
+            Serial.println("REJECT: bad CRC/SEQ");
+            ++rejectedCmds;
+            return;
+        }
+        // A gap means lines were lost in transit. Not fatal on its own -- the
+        // newest target still wins and the mount converges -- but it is the
+        // signature of a bad link, so it is counted apart from bad CRCs.
+        if (haveSeq && seq != lastSeq + 1)
+        {
+            ++sequenceGaps;
+            Serial.print("GAP: seq jumped ");
+            Serial.print(lastSeq);
+            Serial.print(" -> ");
+            Serial.println(seq);
+        }
+        lastSeq = seq;
+        haveSeq = true;
+
         if (!calibrated)
         {
             Serial.println("UNCALIBRATED - run calibrate first");
@@ -380,10 +454,12 @@ void loop()
         static unsigned long lastReport = 0;
         if (millis() - lastReport > 1000)
         {
-            char out[112];
+            char out[144];
             snprintf(out, sizeof(out), "ERR:%.2f %.2f cur %.2f/%.2f tgt %.2f/%.2f%s rej=%lu",
                      errAz, errAlt, azPos, altPos, targetAz, targetAlt,
                      stale ? " STALE" : "", rejectedCmds);
+            snprintf(out + strlen(out), sizeof(out) - strlen(out),
+                     " gap=%lu", sequenceGaps);
             Serial.println(out);
             lastReport = millis();
         }

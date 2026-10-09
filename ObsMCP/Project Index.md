@@ -6,6 +6,7 @@ tags:
 
 - [[Autoobservatory Project]] — C++ CLI astronomy toolkit: mount tracking + ASCII planetarium
 - [[Mount Follower Firmware]] — LSM303AGR + L293D Arduino firmware: calibration, protocol, DC-motor control
+- [[Wireless Mount Link]] — plan for Bluetooth/Wi-Fi transport, LX200 compliance, and the link-hardening to enable them
 - [[Using The Planetarium]] — everyday commands and example sessions for new users
 - [[Pascal Planetarium GUI]] — Free Pascal / Lazarus Form version: click-to-select objects, live dome, target hand-off to the mount
 - [[Astronomy Math Reference]] — Keplerian propagation, light-time, IAU 2006 precession, aberration, Schlyter Moon

@@ -18,6 +18,8 @@
 #include "wmm_mag.h"
 #include "astro_math.h"
 #include "mount_control.h"
+#include "transport.h"
+#include "transport_posix.h"
 #include "terminal_io.h"
 #include "file_io.h"
 #include "object_name.h"
@@ -29,7 +31,8 @@ void DisplayResults(double observerLat, double observerLon, bool visibleOnly, st
 void DisplayArduinoResults(double observerLat, double observerLon, std::string targetName,
                            double year, double month, double day, double hour, double minute, double second, double millisecond,
                            double magneticDeclination, bool magneticMode,
-                           SlewRateLimiter& azLimiter, SlewRateLimiter& altLimiter, double dtSec,                            int serialFd, double deadzoneDeg, LastSent& lastSent, bool dryRun);
+                           SlewRateLimiter& azLimiter, SlewRateLimiter& altLimiter, double dtSec,
+                           Transport* mount, double deadzoneDeg, LastSent& lastSent, bool dryRun, long& seq);
 
 class MagneticDeclination {
 public:
@@ -76,9 +79,12 @@ static void PrintUsage()
                  "                  be sent, but open no serial device" << std::endl;
     std::cout << "  -m, --magnetic  Output magnetic azimuth (WMM2025)" << std::endl;
     std::cout << "      --rate N    Max slew rate in deg/sec for Arduino tracking (default 2, 0 = off)" << std::endl;
-    std::cout << "      --serial DEV  Send AZ/ALT to mount via serial device (e.g. /dev/ttyUSB0)" << std::endl;
+    std::cout << "      --mount SPEC  Link to the mount: tcp://host:port for a wireless\n"
+                 "                   bridge, serial://DEV (or a bare device path) for USB,\n"
+                 "                   stdout for print-only. Default stdout." << std::endl;
+    std::cout << "      --serial DEV  Shorthand for --mount serial://DEV" << std::endl;
     std::cout << "      --baud N    Serial baud rate (default 115200)" << std::endl;
-    std::cout << "      --deadzone N  Only send update after moving N deg (serial mode, default 0)" << std::endl;
+    std::cout << "      --deadzone N  Only send update after moving N deg (default 0)" << std::endl;
     std::cout << "      --object NAME  Show/track one object (fuzzy: unique prefix or substring)" << std::endl;
     std::cout << "      --from-planetarium  Use the target selected in ./planetarium --live" << std::endl;
     std::cout << "      --target-file FILE  Selection file to read (default selected_target.txt)" << std::endl;
@@ -101,7 +107,7 @@ static int runMain(int argc, char* argv[])
     bool dryRun = false; // print what would be sent instead of opening a serial device
     bool magneticMode = false;
     double slewRate = 2.0; // deg/sec, 0 disables slew limiting
-    std::string serialDevice;
+    std::string mountSpec; // empty = stdout; scheme handled by MakeTransport
     int baudRate = 115200;
     double deadzone = 0.0; // deg; only send when position moved more than this (serial mode)
     std::string targetName;
@@ -142,9 +148,14 @@ static int runMain(int argc, char* argv[])
                 slewRate = ParseDoubleArg(argv[i + 1], "slew rate");
                 ++i;
             }
+            else if (arg == "--mount" && i + 1 < argc)
+            {
+                mountSpec = argv[i + 1];
+                ++i;
+            }
             else if (arg == "--serial" && i + 1 < argc)
             {
-                serialDevice = argv[i + 1];
+                mountSpec = std::string("serial://") + argv[i + 1];
                 ++i;
             }
             else if (arg == "--baud" && i + 1 < argc)
@@ -258,27 +269,28 @@ static int runMain(int argc, char* argv[])
         targetName = canonical;
     }
 
-    int serialFd = -1;
+    std::unique_ptr<Transport> mount;
     if (dryRun)
     {
         std::cout << "Dry run: no serial device will be opened; lines below are\n"
                      "what would be sent to the mount" << std::endl;
     }
-    else if (!serialDevice.empty())
+    else if (IsDeviceSpec(mountSpec))
     {
-        serialFd = SerialOpen(serialDevice, ParseBaud(baudRate));
-        if (serialFd < 0)
+        std::string terr;
+        mount = MakeTransport(mountSpec, baudRate, &terr);
+        if (!mount)
         {
-            std::cerr << "Error: could not open serial device " << serialDevice
-                      << " at " << baudRate << " baud." << std::endl;
+            std::cerr << "Error: " << terr << "." << std::endl;
             return 1;
         }
-        std::cout << "Serial output enabled: " << serialDevice << " @ " << baudRate << " baud" << std::endl;
+        std::cout << "Mount link enabled: " << mount->describe() << std::endl;
         if (deadzone > 0.0)
             std::cout << "Deadzone enabled: " << deadzone << "\xC2\xB0" << std::endl;
     }
 
     LastSent lastSent;
+    long wireSeq = 0; // monotonic; feeds the wire SEQ: integrity field
 
     MagneticDeclination magDecl;
     if (!magDecl.initialize("WMM2025.COF")) {
@@ -333,7 +345,7 @@ static int runMain(int argc, char* argv[])
             DisplayArduinoResults(observerLat, observerLon, targetName,
                                   year, month, day, hour, minute, second, millisecond,
                                   declination, magneticMode,
-                                  azLimiter, altLimiter, 0.0, serialFd, deadzone, lastSent, dryRun);
+                                  azLimiter, altLimiter, 0.0, mount.get(), deadzone, lastSent, dryRun, wireSeq);
             // One report is the point of a dry run: validate and exit.
             if (dryRun)
             {
@@ -390,7 +402,7 @@ static int runMain(int argc, char* argv[])
                 DisplayArduinoResults(observerLat, observerLon, targetName,
                                       year, month, day, hour, minute, second, millisecond,
                                       declination, magneticMode,
-                                      azLimiter, altLimiter, dtSec, serialFd, deadzone, lastSent, dryRun);
+                                      azLimiter, altLimiter, dtSec, mount.get(), deadzone, lastSent, dryRun, wireSeq);
             }
         }
         else
@@ -430,7 +442,7 @@ static int runMain(int argc, char* argv[])
     }
 
     if (terminalReady) RestoreTerminal(origSettings);
-    if (serialFd >= 0) SerialClose(serialFd);
+    if (mount) mount->close();
     return 0;
 }
 
@@ -590,7 +602,8 @@ void DisplayResults(double observerLat, double observerLon, bool visibleOnly, st
 void DisplayArduinoResults(double observerLat, double observerLon, std::string targetName,
                            double year, double month, double day, double hour, double minute, double second, double millisecond,
                            double magneticDeclination, bool magneticMode,
-                           SlewRateLimiter& azLimiter, SlewRateLimiter& altLimiter, double dtSec,                            int serialFd, double deadzoneDeg, LastSent& lastSent, bool dryRun)
+                           SlewRateLimiter& azLimiter, SlewRateLimiter& altLimiter, double dtSec,
+                           Transport* mount, double deadzoneDeg, LastSent& lastSent, bool dryRun, long& seq)
 {
     double jd = JulianDate(year, month, day, hour, minute, second, millisecond);
 
@@ -649,56 +662,47 @@ void DisplayArduinoResults(double observerLat, double observerLon, std::string t
     double az = azLimiter.updateWrapping(azTarget, dtSec);
     double alt = altLimiter.update(altTarget, dtSec);
 
-    std::ostringstream line;
-    line << std::fixed << std::setprecision(4);
-    line << "AZ:" << az << " ALT:" << alt;
-
-    if (serialFd >= 0)
+    // One deadzone gate for every destination. It used to be copy-pasted
+    // between the real-send and dry-run arms, which is exactly the code a
+    // transport change forks.
+    bool send = true;
+    if (deadzoneDeg > 0.0 && lastSent.valid)
     {
-        // Deadzone gating: send only if either axis moved more than the
-        // threshold since the last sent update (shortest path for azimuth).
-        bool send = true;
-        if (deadzoneDeg > 0.0 && lastSent.valid)
-        {
-            double dAz = NormalizeDegrees(az - lastSent.az);
-            if (dAz > 180.0) dAz -= 360.0;
-            if (dAz < 0.0) dAz = -dAz;
-            double dAlt = std::fabs(alt - lastSent.alt);
-            send = (dAz > deadzoneDeg || dAlt > deadzoneDeg);
-        }
-
-        if (send)
-        {
-            SerialWriteLine(serialFd, line.str());
-            WriteMountStatus(line.str(), targetName);
-            lastSent.az = az;
-            lastSent.alt = alt;
-            lastSent.valid = true;
-        }
+        double dAz = NormalizeDegrees(az - lastSent.az);
+        if (dAz > 180.0) dAz -= 360.0;
+        if (dAz < 0.0) dAz = -dAz;
+        double dAlt = std::fabs(alt - lastSent.alt);
+        send = (dAz > deadzoneDeg || dAlt > deadzoneDeg);
     }
-    else if (dryRun)
+
+    if (send)
     {
-        // Same gating as the real send, but reported instead of transmitted.
-        bool send = true;
-        if (deadzoneDeg > 0.0 && lastSent.valid)
+        // SEQ/CRC are part of the wire format on every path, so what a dry run
+        // prints is exactly what would go out.
+        std::string wire = FormatTargetLine(az, alt, ++seq);
+        if (mount)
         {
-            double dAz = NormalizeDegrees(az - lastSent.az);
-            if (dAz > 180.0) dAz -= 360.0;
-            if (dAz < 0.0) dAz = -dAz;
-            double dAlt = std::fabs(alt - lastSent.alt);
-            send = (dAz > deadzoneDeg || dAlt > deadzoneDeg);
+            // A short or failed write is reported, never swallowed: a partially
+            // delivered command line would reach the sketch as a plausible but
+            // wrong target.
+            if (!mount->write(wire))
+            {
+                std::cerr << "error: mount link write failed (target dropped)" << std::endl;
+                return;
+            }
+            WriteMountStatus(wire, targetName);
         }
-        if (send)
+        else if (dryRun)
         {
-            std::cout << "send: " << line.str() << std::endl;
-            lastSent.az = az;
-            lastSent.alt = alt;
-            lastSent.valid = true;
+            std::cout << "send: " << wire << std::endl;
         }
-    }
-    else
-    {
-        std::cout << line.str() << std::endl;
+        else
+        {
+            std::cout << wire << std::endl;
+        }
+        lastSent.az = az;
+        lastSent.alt = alt;
+        lastSent.valid = true;
     }
 }
 

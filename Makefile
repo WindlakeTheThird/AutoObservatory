@@ -16,12 +16,13 @@ FPCFLAGS    = -Fupas -Fu$(LAZDIR)/lcl/units/x86_64-linux \
 
 all: autoobservatory planetarium calibrate
 
-calibrate: calibrate.cpp wmm_mag.c mount_control.h wmm_mag.h cli_parse.h
+calibrate: calibrate.cpp wmm_mag.c mount_control.h wmm_mag.h cli_parse.h \
+          transport.h transport_posix.h
 	$(CC) $(CFLAGS) -o $@ calibrate.cpp $(LIBS)
 
 autoobservatory: main.cpp wmm_mag.c astro_math.h mount_control.h terminal_io.h \
                  celestial_objects.h celestial_object_reader.h planetary_objects.h \
-                 object_name.h cli_parse.h file_io.h
+                 object_name.h cli_parse.h file_io.h transport.h transport_posix.h
 	$(CC) $(CFLAGS) -o $@ main.cpp $(LIBS)
 
 planetarium: planetarium.cpp wmm_mag.c astro_math.h celestial_objects.h \
@@ -42,7 +43,7 @@ gui-clean:
 
 # make check = both ephemeris implementations plus name resolution (unit +
 # C++ and Pascal GUI end-to-end). One command, one exit status.
-check: check-cpp check-view check-horiz check-name check-cli check-csv check-select check-select-gui check-hg check-cat check-gui check-vsop check-mag
+check: check-cpp check-view check-horiz check-name check-cli check-csv check-select check-select-gui check-hg check-cat check-gui check-vsop check-mag check-wire
 
 check-cpp: planetarium
 	@echo '== C++ ephemeris check =='
@@ -99,6 +100,15 @@ check-mag: calibrate
 	@$(CC) $(CFLAGS) -o tools/magcheck tools/magcheck.cpp -I. $(LIBS)
 	@tools/magcheck
 	@rm -f tools/magcheck
+
+# Pins the mount wire format (SEQ/CRC). The sketch recomputes the CRC in
+# firmware, so host/firmware disagreement would reject every command; checking
+# against an independent transcription is what makes that disagreement visible.
+check-wire: transport.h
+	@echo '== mount wire-format check =='
+	@$(CC) $(CFLAGS) -o tools/wirecheck tools/wirecheck.cpp -I. $(LIBS)
+	@tools/wirecheck
+	@rm -f tools/wirecheck
 
 # Malformed-input regression net for the two CSV readers: missing files,
 # '#' comments, truncated rows, non-numeric fields, CRLF endings. Asserts the

@@ -105,8 +105,23 @@ expect_fail "autoobservatory unknown object"   timeout -k 2 10 ./autoobservatory
 expect_fail "planetarium unknown object"       ./planetarium 45 10 --select zzz
 expect_fail "dry-run still rejects bad name"   timeout -k 2 10 ./autoobservatory 45 10 --dry-run --object zzz
 
+# --- mount transport specs (ObsMCP/Wireless Mount Link, Phase 1) ---
+# A malformed or unreachable link is a runtime error (1), never a usage
+# error (2): the CLI is well formed, the device simply is not there.
+expect_fail "mount tcp without port"     timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --mount tcp://
+expect_fail "mount tcp without colon"    timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --mount tcp://host
+expect_fail "mount tcp bad port"         timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --mount tcp://host:abc
+expect_fail "mount tcp port too large"   timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --mount tcp://host:99999
+expect_fail "mount refuses udp"          timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --mount udp://1.2.3.4:5
+expect_fail "mount refuses bare bt addr" timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --mount bluetooth://AA:BB:CC:DD:EE:FF
+expect_fail "mount serial device absent" timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --mount serial:///dev/nonexistent-tty
+
 # --- success: exit 0 ---
 expect_ok   "autoobservatory dry-run"          timeout -k 2 10 ./autoobservatory 45 10 --dry-run --object vega
+  # --serial stays an alias for --mount serial://DEV, so existing invocations
+  # and the README quickstart keep working unchanged.
+  expect_fail "legacy --serial still resolves" timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --serial /dev/nonexistent-tty
+  expect_ok   "--mount stdout"                timeout -k 2 10 ./autoobservatory 45 10 --object vega -a --mount stdout --dry-run
 expect_ok   "calibrate dry-run"                ./calibrate 45 10 --dry-run
 
 expect_help "planetarium -h"     ./planetarium -h

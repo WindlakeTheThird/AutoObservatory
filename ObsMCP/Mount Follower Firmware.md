@@ -19,16 +19,27 @@ Arduino firmware for the 2-axis AZ/ALT mount driven by the [[Autoobservatory Pro
 ## Serial protocol
 
 Host → sketch:
-- `AZ:<deg> ALT:<deg>\n` — target position (true azimuth after DECL is set), 115200 baud, already slew-rate-limited by the host. Validated on arrival; out-of-range or non-finite values are refused and counted (see Safety below).
+- `AZ:<deg> ALT:<deg> SEQ:<n> CRC:<hhhh>\n` — target position (true azimuth after DECL is set), 115200 baud, already slew-rate-limited by the host. `SEQ` counts from 1 per command; `CRC` is CRC-16/CCITT-FALSE over every byte before ` CRC:` (so it covers the sequence number too). Validated on arrival; out-of-range, non-finite, or integrity-failed values are refused and counted (see Safety below).
 - `CAL` — start self-calibration
 - `DECL:<deg>` — WMM magnetic declination (host queries WMM2025)
 
 Sketch → host:
 - `CAL:<az> <alt> azoff=N altoff=N` — calibration result
-- `ERR:<azErr> <altErr> cur <az>/<alt> tgt <az>/<alt>[ STALE] rej=<n>` — 1 Hz telemetry for verification
+- `ERR:<azErr> <altErr> cur <az>/<alt> tgt <az>/<alt>[ STALE] rej=<n> gap=<n>` — 1 Hz telemetry for verification
 - `UNCALIBRATED` — AZ/ALT targets refused until calibrated
-- `REJECT: <reason>` — a target line failed validation (non-finite, altitude out of range, implausible azimuth)
+- `REJECT: <reason>` — a target line failed validation (bad CRC/SEQ, non-finite, altitude out of range, implausible azimuth)
+- `GAP: seq jumped <a> -> <b>` — a line was lost in transit; counted separately from rejections because the cause differs
 - `STALE: no command for 5s - motors stopped` — the command watchdog expired
+
+## Wire integrity: SEQ and CRC
+
+Added with Phase 0 of [[Wireless Mount Link]], ahead of any radio. Over a USB cable a dropped line is harmless (the watchdog catches it) and a truncated one is very unlikely. Over Bluetooth/Wi-Fi both happen — and a truncated `AZ:240.8006 ALT:14.9531` can `sscanf` into a *plausible but wrong* target, which is the worst failure a mount can have because it is silent.
+
+So `checkWireIntegrity()` runs **before** `acceptTarget()`: a line failing its CRC can never move a motor, however well-formed its numbers look. A line with no integrity fields at all is also refused — the host always sends them, so their absence means a truncated or hand-typed line.
+
+**The host and the sketch must agree byte-for-byte.** `AppendWireCheck()` in `transport.h` and `wireCrc16()` in the sketch are separate transcriptions of the same algorithm, and `tools/wirecheck.cpp` pins them against a third independent one plus the published check value (`crc16("123456789") == 0x29B1`). This caught a real disagreement during development: the host initially CRC'd only the base line while the sketch CRC'd the line including `SEQ:`, which would have rejected every command while all local tests passed.
+
+A sequence **gap** is not fatal — the newest target still wins and the mount converges — but it is the signature of a bad link, so it is counted apart from rejections and surfaced as `gap=`.
 
 ## Safety: target validation and the stale-command watchdog
 
